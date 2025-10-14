@@ -79,16 +79,16 @@ int convolution2D(int posy, int posx, const unsigned char *input, char operator[
 		res += input[(posy + 1)*SIZE + posx + 0] * operator[1+1][0+1];
 		res += input[(posy + 1)*SIZE + posx + 1] * operator[1+1][1+1];
 	#else
-	#ifdef LOOP_SWAP
-	for (i = -1; i <= 1; i++) {
-			for (j = -1; j <= 1; j++) {
-	#else
-	for (j = -1; j <= 1; j++) {
+		#ifdef LOOP_SWAP
 		for (i = -1; i <= 1; i++) {
-	#endif
-			res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				for (j = -1; j <= 1; j++) {
+		#else
+		for (j = -1; j <= 1; j++) {
+			for (i = -1; i <= 1; i++) {
+		#endif
+				res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+			}
 		}
-	}
 	#endif
 	
 	return(res);
@@ -165,61 +165,60 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
 			#ifdef FUNC_INLINE
-			//Inline version of convolution2D for horizontal operator
-			horiz_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for horizontal operator
+				horiz_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+				#else
+					#ifdef LOOP_SWAP
+					for (count1 = -1; count1 <= 1; count1++) {
+						for (count2 = -1; count2 <= 1; count2++) {
+					#else
 					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
-				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
+						for (count1 = -1; count1 <= 1; count1++) {
+					#endif
 					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
-				}
-			}
-			#endif
+					}
+					}
+				#endif
 
-			//Inline version of convolution2D for vertical operator
-			vert_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for vertical operator
+				vert_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
+					for (count1 = -1; count1 <= 1; count1++) {
+							for (count2 = -1; count2 <= 1; count2++) {
+				#else
 					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
-				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
+						for (count1 = -1; count1 <= 1; count1++) {
+				#endif
 					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
 				}
-			}
-			#endif
-
-			p = pow(horiz_res, 2) + pow(vert_res, 2);
+				}
+				#endif
+				p = pow(horiz_res, 2) + pow(vert_res, 2);
 			#else
 			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 				pow(convolution2D(i, j, input, vert_operator), 2);
@@ -239,58 +238,58 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			#endif
 
 			#ifdef FUNC_INLINE
-			//Inline version of convolution2D for horizontal operator
-			horiz_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for horizontal operator
+				horiz_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
-					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
-					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+					}
 				}
-			}
-			#endif
+				#endif
 
-			//Inline version of convolution2D for vertical operator
-			vert_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for vertical operator
+				vert_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
-					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
-					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+					}
 				}
-			}
 			#endif
 			p = pow(horiz_res, 2) + pow(vert_res, 2);
 			#else
@@ -311,58 +310,58 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			#endif
 
 			#ifdef FUNC_INLINE
-			//Inline version of convolution2D for horizontal operator
-			horiz_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for horizontal operator
+				horiz_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
-					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
-					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+					}
 				}
-			}
-			#endif
+				#endif
 
-			//Inline version of convolution2D for vertical operator
-			vert_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for vertical operator
+				vert_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
-					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
-					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+					}
 				}
-			}
 			#endif
 			p = pow(horiz_res, 2) + pow(vert_res, 2);
 			#else
@@ -381,58 +380,58 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			#endif
 
 			#ifdef FUNC_INLINE
-			//Inline version of convolution2D for horizontal operator
-			horiz_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for horizontal operator
+				horiz_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
-					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
-					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+					}
 				}
-			}
-			#endif
+				#endif
 
-			//Inline version of convolution2D for vertical operator
-			vert_res = 0;
-			#ifdef LOOP_UNROLL
+				//Inline version of convolution2D for vertical operator
+				vert_res = 0;
+				#ifdef LOOP_UNROLL
 
-				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
-			#else
-			#ifdef LOOP_SWAP
-			for (count1 = -1; count1 <= 1; count1++) {
-					for (count2 = -1; count2 <= 1; count2++) {
-			#else
-			for (count2 = -1; count2 <= 1; count2++) {
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
-			#endif
-					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+					}
 				}
-			}
 			#endif
 
 			p = pow(horiz_res, 2) + pow(vert_res, 2);
