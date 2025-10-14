@@ -20,15 +20,29 @@
 
 
 /* The horizontal and vertical operators to be used in the sobel filter */
+#ifdef COMPILER_ASSIST
+const char horiz_operator[3][3] = {{-1, 0, 1}, 
+                             	{-2, 0, 2}, 
+                        		{-1, 0, 1}};
+const char vert_operator[3][3] = {{1, 2, 1}, 
+                            	{0, 0, 0}, 
+                            	{-1, -2, -1}};
+#else
 char horiz_operator[3][3] = {{-1, 0, 1}, 
                              {-2, 0, 2}, 
                              {-1, 0, 1}};
 char vert_operator[3][3] = {{1, 2, 1}, 
                             {0, 0, 0}, 
                             {-1, -2, -1}};
+#endif
 
+#ifdef COMPILER_ASSIST
+double sobel(unsigned char *input, unsigned char *output, unsigned char *golden);
+int convolution2D(const int posy, const int posx, const unsigned char *input, const char operator[][3]);
+#else
 double sobel(unsigned char *input, unsigned char *output, unsigned char *golden);
 int convolution2D(int posy, int posx, const unsigned char *input, char operator[][3]);
+#endif
 
 /* The arrays holding the input image, the output image and the output used *
  * as golden standard. The luminosity (intensity) of each pixel in the      *
@@ -44,7 +58,11 @@ unsigned char input[SIZE*SIZE], output[SIZE*SIZE], golden[SIZE*SIZE];
  * operator the operator we apply (horizontal or vertical). The function ret. *
  * value is the convolution of the operator with the neighboring pixels of the*
  * pixel we process.														  */
+#ifdef COMPILER_ASSIST
+int convolution2D(const int posy, const int posx, const unsigned char *input, const char operator[][3]){
+#else
 int convolution2D(int posy, int posx, const unsigned char *input, char operator[][3]) {
+#endif
 	int i, j, res;
   
 	res = 0;
@@ -89,6 +107,9 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	int res;
 	struct timespec  tv1, tv2;
 	FILE *f_in, *f_out, *f_golden;
+	#ifdef FUNC_INLINE
+	int horiz_res, vert_res, count1, count2;
+	#endif
 
 	/* The first and last row of the output array, as well as the first  *
      * and last element of each column are not going to be filled by the *
@@ -143,8 +164,66 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	#endif
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
+			#ifdef FUNC_INLINE
+			//Inline version of convolution2D for horizontal operator
+			horiz_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+
+			//Inline version of convolution2D for vertical operator
+			vert_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+
+			p = pow(horiz_res, 2) + pow(vert_res, 2);
+			#else
 			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 				pow(convolution2D(i, j, input, vert_operator), 2);
+			#endif
 			res = (int)sqrt(p);
 			/* If the resulting value is greater than 255, clip it *
 			 * to 255.											   */
@@ -152,15 +231,73 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				output[i*SIZE + j] = 255;      
 			else
 				output[i*SIZE + j] = (unsigned char)res;
-				
 			#if UNROLL_FACTOR == 4
 			#ifdef LOOP_SWAP
 				j++;
 			#else
 				i++;
-			#endif	
+			#endif
+
+			#ifdef FUNC_INLINE
+			//Inline version of convolution2D for horizontal operator
+			horiz_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+
+			//Inline version of convolution2D for vertical operator
+			vert_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+			p = pow(horiz_res, 2) + pow(vert_res, 2);
+			#else
 			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 				pow(convolution2D(i, j, input, vert_operator), 2);
+			#endif
+
 			res = (int)sqrt(p);
 			if (res > 255)
 				output[i*SIZE + j] = 255;      
@@ -171,9 +308,67 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				j++;
 			#else
 				i++;
-			#endif	
+			#endif
+
+			#ifdef FUNC_INLINE
+			//Inline version of convolution2D for horizontal operator
+			horiz_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+
+			//Inline version of convolution2D for vertical operator
+			vert_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+			p = pow(horiz_res, 2) + pow(vert_res, 2);
+			#else
 			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 				pow(convolution2D(i, j, input, vert_operator), 2);
+			#endif
 			res = (int)sqrt(p);
 			if (res > 255)
 				output[i*SIZE + j] = 255;      
@@ -183,9 +378,69 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				j++;
 			#else
 				i++;
-			#endif	
+			#endif
+
+			#ifdef FUNC_INLINE
+			//Inline version of convolution2D for horizontal operator
+			horiz_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+				horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+				horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+				horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+				horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+				horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+				horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+				horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+
+			//Inline version of convolution2D for vertical operator
+			vert_res = 0;
+			#ifdef LOOP_UNROLL
+
+				// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+				vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+				vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+				vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+				vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+				vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+				vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+				vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+				vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+			#else
+			#ifdef LOOP_SWAP
+			for (count1 = -1; count1 <= 1; count1++) {
+					for (count2 = -1; count2 <= 1; count2++) {
+			#else
+			for (count2 = -1; count2 <= 1; count2++) {
+				for (count1 = -1; count1 <= 1; count1++) {
+			#endif
+					vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+				}
+			}
+			#endif
+
+			p = pow(horiz_res, 2) + pow(vert_res, 2);
+			#else
 			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 				pow(convolution2D(i, j, input, vert_operator), 2);
+			#endif
+			
 			res = (int)sqrt(p);
 			if (res > 255)
 				output[i*SIZE + j] = 255;      
@@ -199,8 +454,68 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			for ( ; j<SIZE-1; j++ ) {
 				/* Apply the sobel filter and calculate the magnitude *
 				 * of the derivative.								  */
+
+				#ifdef FUNC_INLINE
+				//Inline version of convolution2D for horizontal operator
+				horiz_res = 0;
+				#ifdef LOOP_UNROLL
+
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
+				for (count1 = -1; count1 <= 1; count1++) {
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+					}
+				}
+				#endif
+
+				//Inline version of convolution2D for vertical operator
+				vert_res = 0;
+				#ifdef LOOP_UNROLL
+
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
+				for (count1 = -1; count1 <= 1; count1++) {
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+					}
+				}
+				#endif
+
+				p = pow(horiz_res, 2) + pow(vert_res, 2);
+				#else
 				p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 					pow(convolution2D(i, j, input, vert_operator), 2);
+				#endif
+
 				res = (int)sqrt(p);
 				/* If the resulting value is greater than 255, clip it *
 				 * to 255.											   */
@@ -214,8 +529,67 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			for ( ; i<SIZE-1; i++ ) {
 				/* Apply the sobel filter and calculate the magnitude *
 				 * of the derivative.								  */
+
+				#ifdef FUNC_INLINE
+				//Inline version of convolution2D for horizontal operator
+				horiz_res = 0;
+				#ifdef LOOP_UNROLL
+
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
+				for (count1 = -1; count1 <= 1; count1++) {
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						horiz_res += input[(i + count1)*SIZE + j + count2] * horiz_operator[count1+1][count2+1];
+					}
+				}
+				#endif
+
+				//Inline version of convolution2D for vertical operator
+				vert_res = 0;
+				#ifdef LOOP_UNROLL
+
+					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+				#else
+				#ifdef LOOP_SWAP
+				for (count1 = -1; count1 <= 1; count1++) {
+						for (count2 = -1; count2 <= 1; count2++) {
+				#else
+				for (count2 = -1; count2 <= 1; count2++) {
+					for (count1 = -1; count1 <= 1; count1++) {
+				#endif
+						vert_res += input[(i + count1)*SIZE + j + count2] * vert_operator[count1+1][count2+1];
+					}
+				}
+				#endif
+
+				p = pow(horiz_res, 2) + pow(vert_res, 2);
+				#else
 				p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
 					pow(convolution2D(i, j, input, vert_operator), 2);
+				#endif
 				res = (int)sqrt(p);
 				/* If the resulting value is greater than 255, clip it *
 				 * to 255.											   */
@@ -227,7 +601,7 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 		#endif
 	}
 
-
+		
 
 	/* Now run through the output and the golden output to calculate *
 	 * the MSE and then the PSNR.									 */
@@ -284,4 +658,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-

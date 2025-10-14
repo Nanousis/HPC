@@ -111,9 +111,9 @@ def measure(opt_flag):
 if __name__ == "__main__":
     opt_flags = {
         "-O0": "-O0",
-        "-O3": "-O3 -march=znver4 -mtune=znver4",
+        "-O3": "-fast",
     }
-    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2"]
+    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DFUNC_INLINE", "-DCOMPILER_ASSIST"]
     tests = []
 
     all_defs = " ".join(def_flags)
