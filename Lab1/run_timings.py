@@ -137,7 +137,7 @@ if __name__ == "__main__":
         ("O3_ZNVER4", "-O3 -march=znver4 -mtune=znver4"),
     ]
 
-    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DFUNC_INLINE", "-DCOMPILER_ASSIST"]
+    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DFUNC_INLINE", "-DCOMPILER_ASSIST", "-DFUSION"]
 
     tests = []
     for label, flags in opt_variants:

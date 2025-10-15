@@ -67,7 +67,6 @@ int convolution2D(int posy, int posx, const unsigned char *input, char operator[
   
 	res = 0;
 	#ifdef LOOP_UNROLL
-
 		// res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
 		res += input[(posy + -1)*SIZE + posx + -1] * operator[-1+1][-1+1];
 		res += input[(posy + -1)*SIZE + posx + 0] * operator[-1+1][0+1];
@@ -162,23 +161,23 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	for (j=1; j<SIZE-1; j+=1) {
 		for (i=1; i<((SIZE-1) & ~4); i+=1) {
 	#endif
+			unsigned int _index = i*SIZE;
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
 			#ifdef FUNC_INLINE
 				//Inline version of convolution2D for horizontal operator
 				horiz_res = 0;
 				#ifdef LOOP_UNROLL
-
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+					horiz_res += input[_index - SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[_index - SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[_index - SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[_index + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[_index + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[_index + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[_index + SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[_index + SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[_index + SIZE + j + 1] * horiz_operator[1+1][1+1];
 				#else
 					#ifdef LOOP_SWAP
 					for (count1 = -1; count1 <= 1; count1++) {
@@ -197,15 +196,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+					vert_res += input[_index - SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[_index - SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[_index - SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[_index + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[_index + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[_index + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[_index + SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[_index + SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[_index + SIZE + j + 1] * vert_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 					for (count1 = -1; count1 <= 1; count1++) {
@@ -230,18 +229,12 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				output[i*SIZE + j] = 255;      
 			else
 				output[i*SIZE + j] = (unsigned char)res;
-
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
-
 			#if UNROLL_FACTOR == 4
 			#ifdef LOOP_SWAP
 				j++;
 			#else
 				i++;
+				_index += SIZE;
 			#endif
 
 			#ifdef FUNC_INLINE
@@ -250,15 +243,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+					horiz_res += input[_index - SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[_index - SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[_index - SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[_index + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[_index + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[_index + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[_index + SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[_index + SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[_index + SIZE + j + 1] * horiz_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -277,15 +270,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+					vert_res += input[_index - SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[_index - SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[_index - SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[_index + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[_index + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[_index + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[_index + SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[_index + SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[_index + SIZE + j + 1] * vert_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -310,16 +303,11 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			else
 				output[i*SIZE + j] = (unsigned char)res;
 				
-
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
 			#ifdef LOOP_SWAP
 				j++;
 			#else
 				i++;
+				_index += SIZE;
 			#endif
 
 			#ifdef FUNC_INLINE
@@ -328,15 +316,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+					horiz_res += input[_index - SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[_index - SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[_index - SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[_index + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[_index + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[_index + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[_index + SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[_index + SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[_index + SIZE + j + 1] * horiz_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -355,15 +343,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+					vert_res += input[_index - SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[_index - SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[_index - SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[_index + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[_index + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[_index + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[_index + SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[_index + SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[_index + SIZE + j + 1] * vert_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -386,17 +374,11 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				output[i*SIZE + j] = 255;      
 			else
 				output[i*SIZE + j] = (unsigned char)res;
-
-
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
 			#ifdef LOOP_SWAP
 				j++;
 			#else
 				i++;
+				_index += SIZE;
 			#endif
 
 			#ifdef FUNC_INLINE
@@ -405,15 +387,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+					horiz_res += input[_index - SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[_index - SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[_index - SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[_index + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[_index + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[_index + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[_index + SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[_index + SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[_index + SIZE + j + 1] * horiz_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -432,15 +414,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+					vert_res += input[_index - SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[_index - SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[_index - SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[_index + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[_index + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[_index + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[_index + SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[_index + SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[_index + SIZE + j + 1] * vert_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -466,14 +448,10 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			else
 				output[i*SIZE + j] = (unsigned char)res;
 				
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
 			#endif
 		}
 		#ifdef LOOP_SWAP
+		    unsigned int _index = i*SIZE;
 			// finish the row
 			for ( ; j<SIZE-1; j++ ) {
 				/* Apply the sobel filter and calculate the magnitude *
@@ -485,15 +463,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+					horiz_res += input[_index - SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[_index - SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[_index - SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[_index + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[_index + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[_index + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[_index + SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[_index + SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[_index + SIZE + j + 1] * horiz_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -512,15 +490,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+					vert_res += input[_index - SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[_index - SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[_index - SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[_index + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[_index + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[_index + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[_index + SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[_index + SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[_index + SIZE + j + 1] * vert_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -547,16 +525,11 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 					output[i*SIZE + j] = 255;      
 				else
 					output[i*SIZE + j] = (unsigned char)res;
-
-				#ifdef FUSION
-					t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-					PSNR += t;
-				#endif
-
 			}
 		#else
 			// finish the column
 			for ( ; i<SIZE-1; i++ ) {
+				unsigned int _index = i*SIZE;
 				/* Apply the sobel filter and calculate the magnitude *
 				 * of the derivative.								  */
 
@@ -566,15 +539,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					horiz_res += input[(i + -1)*SIZE + j + 1] * horiz_operator[-1+1][1+1];
-					horiz_res += input[(i + -1)*SIZE + j + -1] *horiz_operator[-1+1][-1+1];
-					horiz_res += input[(i + -1)*SIZE + j + 0] * horiz_operator[-1+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + -1] * horiz_operator[0+1][-1+1];
-					horiz_res += input[(i + 0)*SIZE + j + 0] * horiz_operator[0+1][0+1];
-					horiz_res += input[(i + 0)*SIZE + j + 1] * horiz_operator[0+1][1+1];
-					horiz_res += input[(i + 1)*SIZE + j + -1] * horiz_operator[1+1][-1+1];
-					horiz_res += input[(i + 1)*SIZE + j + 0] * horiz_operator[1+1][0+1];
-					horiz_res += input[(i + 1)*SIZE + j + 1] * horiz_operator[1+1][1+1];
+					horiz_res += input[_index - SIZE + j + 1] * horiz_operator[-1+1][1+1];
+					horiz_res += input[_index - SIZE + j + -1] *horiz_operator[-1+1][-1+1];
+					horiz_res += input[_index - SIZE + j + 0] * horiz_operator[-1+1][0+1];
+					horiz_res += input[_index + j + -1] * horiz_operator[0+1][-1+1];
+					horiz_res += input[_index + j + 0] * horiz_operator[0+1][0+1];
+					horiz_res += input[_index + j + 1] * horiz_operator[0+1][1+1];
+					horiz_res += input[_index + SIZE + j + -1] * horiz_operator[1+1][-1+1];
+					horiz_res += input[_index + SIZE + j + 0] * horiz_operator[1+1][0+1];
+					horiz_res += input[_index + SIZE + j + 1] * horiz_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -593,15 +566,15 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				#ifdef LOOP_UNROLL
 
 					// horiz_res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-					vert_res += input[(i + -1)*SIZE + j + 1] * vert_operator[-1+1][1+1];
-					vert_res += input[(i + -1)*SIZE + j + -1] * vert_operator[-1+1][-1+1];
-					vert_res += input[(i + -1)*SIZE + j + 0] * vert_operator[-1+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + -1] * vert_operator[0+1][-1+1];
-					vert_res += input[(i + 0)*SIZE + j + 0] * vert_operator[0+1][0+1];
-					vert_res += input[(i + 0)*SIZE + j + 1] * vert_operator[0+1][1+1];
-					vert_res += input[(i + 1)*SIZE + j + -1] * vert_operator[1+1][-1+1];
-					vert_res += input[(i + 1)*SIZE + j + 0] * vert_operator[1+1][0+1];
-					vert_res += input[(i + 1)*SIZE + j + 1] * vert_operator[1+1][1+1];
+					vert_res += input[_index - SIZE + j + 1] * vert_operator[-1+1][1+1];
+					vert_res += input[_index - SIZE + j + -1] * vert_operator[-1+1][-1+1];
+					vert_res += input[_index - SIZE + j + 0] * vert_operator[-1+1][0+1];
+					vert_res += input[_index + j + -1] * vert_operator[0+1][-1+1];
+					vert_res += input[_index + j + 0] * vert_operator[0+1][0+1];
+					vert_res += input[_index + j + 1] * vert_operator[0+1][1+1];
+					vert_res += input[_index + SIZE + j + -1] * vert_operator[1+1][-1+1];
+					vert_res += input[_index + SIZE + j + 0] * vert_operator[1+1][0+1];
+					vert_res += input[_index + SIZE + j + 1] * vert_operator[1+1][1+1];
 				#else
 				#ifdef LOOP_SWAP
 				for (count1 = -1; count1 <= 1; count1++) {
@@ -627,12 +600,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 					output[i*SIZE + j] = 255;	  
 				else
 					output[i*SIZE + j] = (unsigned char)res;
-
-				#ifdef FUSION
-					t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-					PSNR += t;
-				#endif
-
 			}	
 		#endif
 	}
@@ -642,7 +609,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	/* Now run through the output and the golden output to calculate *
 	 * the MSE and then the PSNR.									 */
 	// good use of i,j here...
-	#ifndef FUSION
 	printf("UNROLL FACTOr = %d\n", UNROLL_FACTOR);
 	for (i=1; i<SIZE-1; i++) {
 		int j_end = SIZE - 1;
@@ -665,7 +631,7 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			#endif
 		}
 	}
-	#endif
+  
 	PSNR /= (double)(SIZE*SIZE);
 	PSNR = 10*log10(65536/PSNR);
 

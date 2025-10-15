@@ -230,13 +230,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				output[i*SIZE + j] = 255;      
 			else
 				output[i*SIZE + j] = (unsigned char)res;
-
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
-
 			#if UNROLL_FACTOR == 4
 			#ifdef LOOP_SWAP
 				j++;
@@ -310,12 +303,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			else
 				output[i*SIZE + j] = (unsigned char)res;
 				
-
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
 			#ifdef LOOP_SWAP
 				j++;
 			#else
@@ -386,13 +373,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				output[i*SIZE + j] = 255;      
 			else
 				output[i*SIZE + j] = (unsigned char)res;
-
-
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
 			#ifdef LOOP_SWAP
 				j++;
 			#else
@@ -466,11 +446,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			else
 				output[i*SIZE + j] = (unsigned char)res;
 				
-			#ifdef FUSION
-				t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-				PSNR += t;
-			#endif
-
 			#endif
 		}
 		#ifdef LOOP_SWAP
@@ -547,12 +522,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 					output[i*SIZE + j] = 255;      
 				else
 					output[i*SIZE + j] = (unsigned char)res;
-
-				#ifdef FUSION
-					t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-					PSNR += t;
-				#endif
-
 			}
 		#else
 			// finish the column
@@ -627,12 +596,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 					output[i*SIZE + j] = 255;	  
 				else
 					output[i*SIZE + j] = (unsigned char)res;
-
-				#ifdef FUSION
-					t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-					PSNR += t;
-				#endif
-
 			}	
 		#endif
 	}
@@ -642,7 +605,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	/* Now run through the output and the golden output to calculate *
 	 * the MSE and then the PSNR.									 */
 	// good use of i,j here...
-	#ifndef FUSION
 	printf("UNROLL FACTOr = %d\n", UNROLL_FACTOR);
 	for (i=1; i<SIZE-1; i++) {
 		int j_end = SIZE - 1;
@@ -665,7 +627,7 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			#endif
 		}
 	}
-	#endif
+  
 	PSNR /= (double)(SIZE*SIZE);
 	PSNR = 10*log10(65536/PSNR);
 
