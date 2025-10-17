@@ -1,3 +1,4 @@
+# Script to build and ran the sobel_orig.c with all the possible combinations of optimizations and measure timings.
 import subprocess
 import re
 import statistics
@@ -14,6 +15,7 @@ RUNS = 3  # total runs per optimization level (use >=5 so trimming makes sense)
 TIME_RE = re.compile(r"Total time\s*=\s*([\d.]+)\s*seconds")
 PSNR_RE = re.compile(r"PSNR[^:]*:\s*([^\s]+)", re.IGNORECASE)
 
+# Build the program with given CFLAGS
 def build(opt_flag):
     print(f"\n=== Building with {opt_flag} ===")
     subprocess.run(["make", "clean"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -25,6 +27,7 @@ def build(opt_flag):
         print(result.stderr)
         sys.exit(1)
 
+# Parse time and PSNR from program output
 def parse_time_and_psnr(output: str):
     # Time
     m_time = TIME_RE.search(output)
@@ -44,6 +47,7 @@ def parse_time_and_psnr(output: str):
                 psnr_val = None
     return t, psnr_val
 
+# Runs the sobel_orig executable and captures its output
 def run_program():
     run = subprocess.run([f"./{EXECUTABLE}"], capture_output=True, text=True)
     # print(run.stdout)
@@ -137,7 +141,7 @@ if __name__ == "__main__":
         ("O3_ZNVER4", "-O3 -march=znver4 -mtune=znver4"),
     ]
 
-    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DFUNC_INLINE", "-DCOMPILER_ASSIST", "-DFUSION"]
+    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION"]
 
     tests = []
     for label, flags in opt_variants:
@@ -164,7 +168,8 @@ if __name__ == "__main__":
     results = {}
     # set baselines: O0 with no -D as primary baseline; O3_ZNVER4 with no -D as O3 baseline
     baseline_key = next(k for k, v in tests if k == "O0" and " -D" not in (" " + v))
-    o3_baseline_key = next(k for k, v in tests if k == "O3_ZNVER4" and " -D" not in (" " + v))
+    #o3_baseline_key = next(k for k, v in tests if k == "O3_ZNVER4" and " -D" not in (" " + v))
+    o3_baseline_key = next(k for k, v in tests if k=="FAST" and "-D" not in ("" + v))
 
     for key, buildflags in tests:
         print(f"\n=== Testing: {buildflags} ===")
