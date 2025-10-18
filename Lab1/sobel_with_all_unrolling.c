@@ -17,8 +17,7 @@
 #else
 	#define UNROLL_FACTOR 1
 #endif
-// #define STRENGTH_REDUCTION
-// #define FUNC_INLINE
+
 
 /* The horizontal and vertical operators to be used in the sobel filter */
 #ifdef COMPILER_ASSIST
@@ -158,70 +157,22 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	#ifdef LOOP_SWAP
 	// better cache locality
 	for (i=1; i<SIZE-1; i+=1 ) {
-			for (j=1; j<((SIZE-1)); j+=1) {
+			for (j=1; j<((SIZE-1) & ~4); j+=1) {
 	#else
 	for (j=1; j<SIZE-1; j+=1) {
-		for (i=1; i<((SIZE-1)); i+=1) {
+		for (i=1; i<((SIZE-1) & ~4); i+=1) {
 	#endif
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
             #ifdef STRENGTH_REDUCTION
-				#ifdef FUNC_INLINE
-					// Inline version of convolution2D for horizontal operator
-					conv_res1 = 0;
-					conv_res1 += input[(i - 1)*SIZE + (j - 1)] * horiz_operator[0][0];
-					conv_res1 += input[(i - 1)*SIZE + (j    )] * horiz_operator[0][1];
-					conv_res1 += input[(i - 1)*SIZE + (j + 1)] * horiz_operator[0][2];
-					conv_res1 += input[(i    )*SIZE + (j - 1)] * horiz_operator[1][0];
-					conv_res1 += input[(i    )*SIZE + (j    )] * horiz_operator[1][1];
-					conv_res1 += input[(i    )*SIZE + (j + 1)] * horiz_operator[1][2];
-					conv_res1 += input[(i + 1)*SIZE + (j - 1)] * horiz_operator[2][0];
-					conv_res1 += input[(i + 1)*SIZE + (j    )] * horiz_operator[2][1];
-					conv_res1 += input[(i + 1)*SIZE + (j + 1)] * horiz_operator[2][2];
-					conv_res2 = 0;
-					conv_res2 += input[(i - 1)*SIZE + (j - 1)] * vert_operator[0][0];
-					conv_res2 += input[(i - 1)*SIZE + (j    )] * vert_operator[0][1];
-					conv_res2 += input[(i - 1)*SIZE + (j + 1)] * vert_operator[0][2];
-					conv_res2 += input[(i    )*SIZE + (j - 1)] * vert_operator[1][0];
-					conv_res2 += input[(i    )*SIZE + (j    )] * vert_operator[1][1];
-					conv_res2 += input[(i    )*SIZE + (j + 1)] * vert_operator[1][2];
-					conv_res2 += input[(i + 1)*SIZE + (j - 1)] * vert_operator[2][0];
-					conv_res2 += input[(i + 1)*SIZE + (j    )] * vert_operator[2][1];
-					conv_res2 += input[(i + 1)*SIZE + (j + 1)] * vert_operator[2][2];
-				#else
-				conv_res1 = convolution2D(i, j, input, horiz_operator);
-				conv_res2 = convolution2D(i, j, input, vert_operator);
-				#endif
-				p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            conv_res1 = convolution2D(i, j, input, horiz_operator);
+            conv_res2 = convolution2D(i, j, input, vert_operator);
+            p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
             #else
-				#ifdef FUNC_INLINE
-				int conv_res1 = 0, conv_res2 = 0;
-				// Inline version of convolution2D for horizontal operator
-				conv_res1 += input[(i - 1)*SIZE + (j - 1)] * horiz_operator[0][0];
-				conv_res1 += input[(i - 1)*SIZE + (j    )] * horiz_operator[0][1];
-				conv_res1 += input[(i - 1)*SIZE + (j + 1)] * horiz_operator[0][2];
-				conv_res1 += input[(i    )*SIZE + (j - 1)] * horiz_operator[1][0];
-				conv_res1 += input[(i    )*SIZE + (j    )] * horiz_operator[1][1];
-				conv_res1 += input[(i    )*SIZE + (j + 1)] * horiz_operator[1][2];
-				conv_res1 += input[(i + 1)*SIZE + (j - 1)] * horiz_operator[2][0];
-				conv_res1 += input[(i + 1)*SIZE + (j    )] * horiz_operator[2][1];
-				conv_res1 += input[(i + 1)*SIZE + (j + 1)] * horiz_operator[2][2];
-				// Inline version of convolution2D for vertical operator
-				conv_res2 += input[(i - 1)*SIZE + (j - 1)] * vert_operator[0][0];
-				conv_res2 += input[(i - 1)*SIZE + (j    )] * vert_operator[0][1];
-				conv_res2 += input[(i - 1)*SIZE + (j + 1)] * vert_operator[0][2];
-				conv_res2 += input[(i    )*SIZE + (j - 1)] * vert_operator[1][0];
-				conv_res2 += input[(i    )*SIZE + (j    )] * vert_operator[1][1];
-				conv_res2 += input[(i    )*SIZE + (j + 1)] * vert_operator[1][2];
-				conv_res2 += input[(i + 1)*SIZE + (j - 1)] * vert_operator[2][0];
-				conv_res2 += input[(i + 1)*SIZE + (j    )] * vert_operator[2][1];
-				conv_res2 += input[(i + 1)*SIZE + (j + 1)] * vert_operator[2][2];
-				p = conv_res1 * conv_res1 + conv_res2 * conv_res2;
-				#else
-				p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
-					pow(convolution2D(i, j, input, vert_operator), 2);
-				#endif
+			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+				pow(convolution2D(i, j, input, vert_operator), 2);
             #endif
+
 			res = (int)sqrt(p);
 			/* If the resulting value is greater than 255, clip it *
 			 * to 255.											   */
@@ -229,7 +180,129 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 				output[i*SIZE + j] = 255;      
 			else
 				output[i*SIZE + j] = (unsigned char)res;
+
+                
+			#if UNROLL_FACTOR == 4
+			#ifdef LOOP_SWAP
+				j++;
+			#else
+				i++;
+			#endif
+			
+            #ifdef STRENGTH_REDUCTION
+            conv_res1 = convolution2D(i, j, input, horiz_operator);
+            conv_res2 = convolution2D(i, j, input, vert_operator);
+            p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            #else
+			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+				pow(convolution2D(i, j, input, vert_operator), 2);
+            #endif
+
+
+			res = (int)sqrt(p);
+			if (res > 255)
+				output[i*SIZE + j] = 255;      
+			else
+				output[i*SIZE + j] = (unsigned char)res;
+				
+
+			#ifdef LOOP_SWAP
+				j++;
+			#else
+				i++;
+			#endif
+
+			#ifdef STRENGTH_REDUCTION
+            conv_res1 = convolution2D(i, j, input, horiz_operator);
+            conv_res2 = convolution2D(i, j, input, vert_operator);
+            p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            #else
+			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+				pow(convolution2D(i, j, input, vert_operator), 2);
+			#endif
+
+			res = (int)sqrt(p);
+			if (res > 255)
+				output[i*SIZE + j] = 255;      
+			else
+				output[i*SIZE + j] = (unsigned char)res;
+
+
+
+			#ifdef LOOP_SWAP
+				j++;
+			#else
+				i++;
+			#endif
+
+			#ifdef STRENGTH_REDUCTION
+            conv_res1 = convolution2D(i, j, input, horiz_operator);
+            conv_res2 = convolution2D(i, j, input, vert_operator);
+            p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            #else
+			p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+				pow(convolution2D(i, j, input, vert_operator), 2);
+			#endif
+
+			res = (int)sqrt(p);
+			if (res > 255)
+				output[i*SIZE + j] = 255;      
+			else
+				output[i*SIZE + j] = (unsigned char)res;
+			
+			#endif
 		}
+		#ifdef LOOP_SWAP
+			// finish the row
+			for ( ; j<SIZE-1; j++ ) {
+				/* Apply the sobel filter and calculate the magnitude *
+				 * of the derivative.								  */
+				#ifdef STRENGTH_REDUCTION
+            	conv_res1 = convolution2D(i, j, input, horiz_operator);
+            	conv_res2 = convolution2D(i, j, input, vert_operator);
+            	p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            	#else
+				p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+					pow(convolution2D(i, j, input, vert_operator), 2);
+				#endif
+
+				res = (int)sqrt(p);
+				/* If the resulting value is greater than 255, clip it *
+				 * to 255.											   */
+				if (res > 255)
+					output[i*SIZE + j] = 255;      
+				else
+					output[i*SIZE + j] = (unsigned char)res;
+
+				#ifdef FUSION
+					t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
+					PSNR += t;
+				#endif
+
+			}
+		#else
+			// finish the column
+			for ( ; i<SIZE-1; i++ ) {
+				/* Apply the sobel filter and calculate the magnitude *
+				 * of the derivative.								  */
+				#ifdef STRENGTH_REDUCTION
+				conv_res1 = convolution2D(i, j, input, horiz_operator);
+				conv_res2 = convolution2D(i, j, input, vert_operator);
+				p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+				#else
+				p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+					pow(convolution2D(i, j, input, vert_operator), 2);
+				#endif
+
+				res = (int)sqrt(p);
+				/* If the resulting value is greater than 255, clip it *
+				 * to 255.											   */
+				if (res > 255)
+					output[i*SIZE + j] = 255;	  
+				else
+					output[i*SIZE + j] = (unsigned char)res;
+			}	
+		#endif
 	}
 
 		

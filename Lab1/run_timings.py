@@ -8,12 +8,78 @@ import argparse
 import itertools
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 EXECUTABLE = "sobel_orig"
 RUNS = 3  # total runs per optimization level (use >=5 so trimming makes sense)
 
 TIME_RE = re.compile(r"Total time\s*=\s*([\d.]+)\s*seconds")
 PSNR_RE = re.compile(r"PSNR[^:]*:\s*([^\s]+)", re.IGNORECASE)
+
+def parse_name_and_flags(k: str):
+    # returns (label, flags)
+    if " :: " in k:
+        name, flags = k.split(" :: ", 1)
+    else:
+        name, flags = k, ""
+    return name, flags
+
+def is_combo(name: str) -> bool:
+    return "_C" in name  # combo keys look like O3_ZNVER4_C3[...], etc.
+
+def is_alldefs(name: str) -> bool:
+    return name.endswith("_ALLDEFS")
+
+def is_basic(name: str) -> bool:
+    # Basic = not a combo and not the explicit ALLDEFS
+    return (not is_combo(name)) and (not is_alldefs(name))
+
+def clean_flags(flags: str) -> str:
+    """Remove base optimization flags for clarity in the DataFrame."""
+    # Define what to strip (exact substrings)
+    to_remove = [
+        "-O0",
+        "-O3 -march=znver4 -mtune=znver4",
+        "-fast"
+    ]
+    for r in to_remove:
+        flags = flags.replace(r, "")
+    # Clean up extra spaces
+    return " ".join(flags.split()).strip()
+
+def build_speedup_df(results, baseline_time, speedup_col, include_predicate):
+    rows = []
+    if not baseline_time:
+        return pd.DataFrame(columns=["Label","Flags","Avg Time (s)","Std Time (s)",speedup_col,"PSNR"])
+
+    for k, res in results.items():
+        if not res:
+            continue
+        avg_t, std_t, avg_p, _ = res
+        if not avg_t:
+            continue
+
+        name, flags = parse_name_and_flags(k)
+        if not include_predicate(name):
+            continue
+
+        # 🧹 Clean up the flag string
+        flags = clean_flags(flags)
+
+        spd = baseline_time / avg_t
+        rows.append({
+            "Label": name,
+            "Flags": flags,
+            "Avg Time (s)": avg_t,
+            "Std Time (s)": std_t,
+            speedup_col: spd,
+            "PSNR": avg_p
+        })
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values(by=speedup_col, ascending=False).reset_index(drop=True)
+    return df
 
 # Build the program with given CFLAGS
 def build(opt_flag):
@@ -132,6 +198,11 @@ if __name__ == "__main__":
         "--max-combo-size", type=int, default=None,
         help="Maximum number of -D flags in a combo when --combos is set (default: all)"
     )
+    parser.add_argument(
+        "--plots",
+        action="store_true",
+        help="Generate and save plots (default: False)"
+    )
     args = parser.parse_args()
     runs = args.runs if args.runs >= 3 else 3
 
@@ -140,8 +211,9 @@ if __name__ == "__main__":
         ("FAST", "-fast"),
         ("O3_ZNVER4", "-O3 -march=znver4 -mtune=znver4"),
     ]
+    # def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION"]
+    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION", "-DFUNC_INLINE"]
 
-    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION"]
 
     tests = []
     for label, flags in opt_variants:
@@ -168,8 +240,8 @@ if __name__ == "__main__":
     results = {}
     # set baselines: O0 with no -D as primary baseline; O3_ZNVER4 with no -D as O3 baseline
     baseline_key = next(k for k, v in tests if k == "O0" and " -D" not in (" " + v))
-    #o3_baseline_key = next(k for k, v in tests if k == "O3_ZNVER4" and " -D" not in (" " + v))
-    o3_baseline_key = next(k for k, v in tests if k=="FAST" and "-D" not in ("" + v))
+    o3_baseline_key = next(k for k, v in tests if k == "O3_ZNVER4" and " -D" not in (" " + v))
+    # o3_baseline_key = next(k for k, v in tests if k=="FAST" and "-D" not in ("" + v))
 
     for key, buildflags in tests:
         print(f"\n=== Testing: {buildflags} ===")
@@ -203,6 +275,119 @@ if __name__ == "__main__":
             f"speedup vs O0: {speedup_vs_o0:.2f}x, "
             f"speedup vs O3: {speedup_o3_str}\n"
         )
+    if not args.plots:
+        sys.exit(0)
+    df_speedup_o0_basic = build_speedup_df(results, base_time, "Speedup vs O0", include_predicate=is_basic)
+    df_speedup_o3_basic = build_speedup_df(results, o3_time,  "Speedup vs O3", include_predicate=is_basic)
+
+    df_speedup_o0_all   = build_speedup_df(results, base_time, "Speedup vs O0", include_predicate=lambda _name: True)
+    df_speedup_o3_all   = build_speedup_df(results, o3_time,  "Speedup vs O3", include_predicate=lambda _name: True)
+
+    # --- Quick peeks
+    print("\n=== Speedups vs O0 (BASIC) ===")
+    print(df_speedup_o0_basic[["Label","Flags","Speedup vs O0","Avg Time (s)"]].head(10).to_string(index=False))
+
+    print("\n=== Speedups vs O3 (BASIC) ===")
+    print(df_speedup_o3_basic[["Label","Flags","Speedup vs O3","Avg Time (s)"]].head(10).to_string(index=False))
+
+    print("\n=== Speedups vs O0 (ALL TESTS) ===")
+    print(df_speedup_o0_all[["Label","Flags","Speedup vs O0","Avg Time (s)"]].head(10).to_string(index=False))
+
+    print("\n=== Speedups vs O3 (ALL TESTS) ===")
+    print(df_speedup_o3_all[["Label","Flags","Speedup vs O3","Avg Time (s)"]].head(10).to_string(index=False))
+
+    df_o0_top = df_speedup_o0_basic[df_speedup_o0_basic['Label'] == 'O0']
+    df_o3_top = df_speedup_o3_basic[df_speedup_o3_basic['Label'] == 'O3_ZNVER4']
+
+    # Set up figure
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    plt.subplots_adjust(wspace=0.4)
+
+    # --- Plot O0 speedups ---
+    axes[0].barh(
+        y=np.arange(len(df_o0_top)),
+        width=df_o0_top["Speedup vs O0"],
+        color="royalblue"
+    )
+    axes[0].set_yticks(np.arange(len(df_o0_top)))
+    axes[0].set_yticklabels(df_o0_top["Flags"], fontsize=9)
+    axes[0].invert_yaxis()  # highest on top
+    axes[0].set_xlabel("Speedup vs O0", fontsize=11)
+    axes[0].set_title("Top Speedups vs O0 (Basic tests)", fontsize=13)
+    axes[0].grid(axis="x", linestyle="--", alpha=0.5)
+
+    # Annotate bars with speedup values
+    for i, v in enumerate(df_o0_top["Speedup vs O0"]):
+        axes[0].text(v + 0.05, i, f"{v:.2f}x", va='center', fontsize=9)
+
+    # --- Plot O3 speedups ---
+    axes[1].barh(
+        y=np.arange(len(df_o3_top)),
+        width=df_o3_top["Speedup vs O3"],
+        color="darkorange"
+    )
+    axes[1].set_yticks(np.arange(len(df_o3_top)))
+    axes[1].set_yticklabels(df_o3_top["Flags"], fontsize=9)
+    axes[1].invert_yaxis()
+    axes[1].set_xlabel("Speedup vs O3", fontsize=11)
+    axes[1].set_title("Top Speedups vs O3 (Basic tests)", fontsize=13)
+    axes[1].grid(axis="x", linestyle="--", alpha=0.5)
+
+    for i, v in enumerate(df_o3_top["Speedup vs O3"]):
+        axes[1].text(v + 0.05, i, f"{v:.2f}x", va='center', fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig("comp_basic.png", dpi=300)
+    print("Plot saved as comp_basic.png")
+
+    df_o0_top = df_speedup_o0_all.head(20)
+    df_o3_top = df_speedup_o3_all.head(20)
+
+    # Set up figure: 2 rows × 1 column
+    fig, axes = plt.subplots(2, 1, figsize=(10, 10))
+    plt.subplots_adjust(hspace=0.6)  # increase vertical spacing
+
+    # --- Plot O0 speedups ---
+    axes[0].barh(
+        y=np.arange(len(df_o0_top)),
+        width=df_o0_top["Speedup vs O0"],
+        color="royalblue"
+    )
+    axes[0].set_yticks(np.arange(len(df_o0_top)))
+    axes[0].set_yticklabels(df_o0_top["Flags"], fontsize=7)  # smaller labels
+    axes[0].invert_yaxis()
+    axes[0].set_xlabel("Speedup vs O0", fontsize=10)
+    axes[0].set_title("Top Speedups vs O0 (All Tests)", fontsize=12, pad=10)
+    axes[0].grid(axis="x", linestyle="--", alpha=0.5)
+
+    for i, v in enumerate(df_o0_top["Speedup vs O0"]):
+        axes[0].text(v + 0.05, i, f"{v:.2f}x", va='center', fontsize=8)
+
+    # --- Plot O3 speedups ---
+    axes[1].barh(
+        y=np.arange(len(df_o3_top)),
+        width=df_o3_top["Speedup vs O3"],
+        color="darkorange"
+    )
+    axes[1].set_yticks(np.arange(len(df_o3_top)))
+    axes[1].set_yticklabels(df_o3_top["Flags"], fontsize=7)
+    axes[1].invert_yaxis()
+    axes[1].set_xlabel("Speedup vs O3", fontsize=10)
+    axes[1].set_title("Top Speedups vs O3 (All Tests)", fontsize=12, pad=10)
+    axes[1].grid(axis="x", linestyle="--", alpha=0.5)
+
+    for i, v in enumerate(df_o3_top["Speedup vs O3"]):
+        axes[1].text(v + 0.05, i, f"{v:.2f}x", va='center', fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig("comp_all_vertical.png", dpi=300, bbox_inches="tight")
+    print("Plot saved as comp_all_vertical.png")
+
+    # Save DataFrames as before
+    df_speedup_o0_basic.to_csv("df_speedup_o0_basic.csv", index=False)
+    df_speedup_o3_basic.to_csv("df_speedup_o3_basic.csv", index=False)
+    df_speedup_o0_all.to_csv("df_speedup_o0_all.csv", index=False)
+    df_speedup_o3_all.to_csv("df_speedup_o3_all.csv", index=False)
     if args.combos and base_time:
         ranked = []
         for test, res in results.items():
