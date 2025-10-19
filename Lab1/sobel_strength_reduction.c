@@ -17,11 +17,11 @@
 #else
 	#define UNROLL_FACTOR 1
 #endif
-// #define STRENGTH_REDUCTION
-// #define FUNC_INLINE
+
 #define LOOP_SWAP
 #define COMPILER_ASSIST
 #define LOOP_UNROLL
+
 /* The horizontal and vertical operators to be used in the sobel filter */
 const char horiz_operator[3][3] = {{-1, 0, 1}, 
                              	{-2, 0, 2}, 
@@ -50,21 +50,20 @@ unsigned char input[SIZE*SIZE], output[SIZE*SIZE], golden[SIZE*SIZE];
  * pixel we process.														  */
 int convolution2D(const int posy, const int posx, const unsigned char *input, const char operator[][3]){
 
-	int res;
-  
-	res = 0;
-	// res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-	res += input[(posy + -1)*SIZE + posx + -1] * operator[-1+1][-1+1];
-	res += input[(posy + -1)*SIZE + posx + 0] * operator[-1+1][0+1];
-	res += input[(posy + -1)*SIZE + posx + 1] * operator[-1+1][1+1];
-	res += input[(posy + 0)*SIZE + posx + -1] * operator[0+1][-1+1];
-	res += input[(posy + 0)*SIZE + posx + 0] * operator[0+1][0+1];
-	res += input[(posy + 0)*SIZE + posx + 1] * operator[0+1][1+1];
-	res += input[(posy + 1)*SIZE + posx + -1] * operator[1+1][-1+1];
-	res += input[(posy + 1)*SIZE + posx + 0] * operator[1+1][0+1];
-	res += input[(posy + 1)*SIZE + posx + 1] * operator[1+1][1+1];
-
+	int i, j, res;
 	
+	res = 0;
+		// res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+		res += input[posy-SIZE + posx + -1] * operator[-1+1][-1+1];
+		res += input[posy-SIZE + posx + 0] * operator[-1+1][0+1];
+		res += input[posy-SIZE + posx + 1] * operator[-1+1][1+1];
+		res += input[posy + posx + -1] * operator[0+1][-1+1];
+		res += input[posy + posx + 0] * operator[0+1][0+1];
+		res += input[posy + posx + 1] * operator[0+1][1+1];
+		res += input[posy + SIZE + posx + -1] * operator[1+1][-1+1];
+		res += input[posy + SIZE + posx + 0] * operator[1+1][0+1];
+		res += input[posy + SIZE + posx + 1] * operator[1+1][1+1];
+
 	return(res);
 }
 
@@ -82,15 +81,17 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	struct timespec  tv1, tv2;
 	FILE *f_in, *f_out, *f_golden;
 	int conv_res1, conv_res2;
-
 	/* The first and last row of the output array, as well as the first  *
-     * and last element of each column are not going to be filled by the *
-     * algorithm, therefore make sure to initialize them with 0s.		 */
+	* and last element of each column are not going to be filled by the *
+	* algorithm, therefore make sure to initialize them with 0s.		 */
 	memset(output, 0, SIZE*sizeof(unsigned char));
 	memset(&output[SIZE*(SIZE-1)], 0, SIZE*sizeof(unsigned char));
+
+	int size_ptr=SIZE;
 	for (i = 1; i < SIZE-1; i++) {
-		output[i*SIZE] = 0;
-		output[i*SIZE + SIZE - 1] = 0;
+		output[size_ptr] = 0;
+		output[size_ptr + SIZE - 1] = 0;
+		size_ptr += SIZE;
 	}
 
 	/* Open the input, output, golden files, read the input and golden    *
@@ -124,24 +125,23 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	/* This is the main computation. Get the starting time. */
 	clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 	/* For each pixel of the output image */
-
-	
-	// better cache locality
+	size_ptr=SIZE;
 	for (i=1; i<SIZE-1; i+=1 ) {
-			for (j=1; j<((SIZE-1)); j+=1) {
+		for (j=1; j<((SIZE-1)); j+=1) {
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
-			conv_res1 = convolution2D(i, j, input, horiz_operator);
-			conv_res2 = convolution2D(i, j, input, vert_operator);
+			conv_res1 = convolution2D(size_ptr, j, input, horiz_operator);
+			conv_res2 = convolution2D(size_ptr, j, input, vert_operator);
 			p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
 			res = (int)sqrt(p);
 			/* If the resulting value is greater than 255, clip it *
 			 * to 255.											   */
 			if (res > 255)
-				output[i*SIZE + j] = 255;      
+				output[size_ptr + j] = 255;
 			else
-				output[i*SIZE + j] = (unsigned char)res;
+				output[size_ptr + j] = (unsigned char)res;
 		}
+		size_ptr += SIZE;
 	}
 
 		
@@ -151,12 +151,14 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	// good use of i,j here...
 	
 	printf("UNROLL FACTOR = %d\n", UNROLL_FACTOR);
+	size_ptr=SIZE;
 	for (i=1; i<SIZE-1; i++) {
 		int j_end = SIZE - 1;
 		for ( j=4; j<j_end; j+=UNROLL_FACTOR ) {
-			t = output[i*SIZE+j]*output[i*SIZE+j] - golden[i*SIZE+j]*golden[i*SIZE+j];
+			t = output[size_ptr+j]*output[size_ptr+j] - golden[size_ptr+j]*golden[size_ptr+j];
 			PSNR += t;
 		}
+		size_ptr += SIZE;
 	}
 	
 	PSNR /= (double)(SIZE*SIZE);
