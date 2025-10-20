@@ -19,20 +19,31 @@
 #endif
 // #define STRENGTH_REDUCTION
 // #define FUNC_INLINE
-#define LOOP_SWAP
-#define COMPILER_ASSIST
-#define LOOP_UNROLL
+
 /* The horizontal and vertical operators to be used in the sobel filter */
+#ifdef COMPILER_ASSIST
 const char horiz_operator[3][3] = {{-1, 0, 1}, 
                              	{-2, 0, 2}, 
                         		{-1, 0, 1}};
 const char vert_operator[3][3] = {{1, 2, 1}, 
                             	{0, 0, 0}, 
                             	{-1, -2, -1}};
+#else
+char horiz_operator[3][3] = {{-1, 0, 1}, 
+                             {-2, 0, 2}, 
+                             {-1, 0, 1}};
+char vert_operator[3][3] = {{1, 2, 1}, 
+                            {0, 0, 0}, 
+                            {-1, -2, -1}};
+#endif
 
+#ifdef COMPILER_ASSIST
 double sobel(unsigned char *input, unsigned char *output, unsigned char *golden);
 int convolution2D(const int posy, const int posx, const unsigned char *input, const char operator[][3]);
-
+#else
+double sobel(unsigned char *input, unsigned char *output, unsigned char *golden);
+int convolution2D(int posy, int posx, const unsigned char *input, char operator[][3]);
+#endif
 
 /* The arrays holding the input image, the output image and the output used *
  * as golden standard. The luminosity (intensity) of each pixel in the      *
@@ -48,22 +59,38 @@ unsigned char input[SIZE*SIZE], output[SIZE*SIZE], golden[SIZE*SIZE];
  * operator the operator we apply (horizontal or vertical). The function ret. *
  * value is the convolution of the operator with the neighboring pixels of the*
  * pixel we process.														  */
+#ifdef COMPILER_ASSIST
 int convolution2D(const int posy, const int posx, const unsigned char *input, const char operator[][3]){
-
-	int res;
+#else
+int convolution2D(int posy, int posx, const unsigned char *input, char operator[][3]) {
+#endif
+	int i, j, res;
   
 	res = 0;
-	// res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
-	res += input[(posy + -1)*SIZE + posx + -1] * operator[-1+1][-1+1];
-	res += input[(posy + -1)*SIZE + posx + 0] * operator[-1+1][0+1];
-	res += input[(posy + -1)*SIZE + posx + 1] * operator[-1+1][1+1];
-	res += input[(posy + 0)*SIZE + posx + -1] * operator[0+1][-1+1];
-	res += input[(posy + 0)*SIZE + posx + 0] * operator[0+1][0+1];
-	res += input[(posy + 0)*SIZE + posx + 1] * operator[0+1][1+1];
-	res += input[(posy + 1)*SIZE + posx + -1] * operator[1+1][-1+1];
-	res += input[(posy + 1)*SIZE + posx + 0] * operator[1+1][0+1];
-	res += input[(posy + 1)*SIZE + posx + 1] * operator[1+1][1+1];
+	#ifdef LOOP_UNROLL
 
+		// res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+		res += input[(posy + -1)*SIZE + posx + -1] * operator[-1+1][-1+1];
+		res += input[(posy + -1)*SIZE + posx + 0] * operator[-1+1][0+1];
+		res += input[(posy + -1)*SIZE + posx + 1] * operator[-1+1][1+1];
+		res += input[(posy + 0)*SIZE + posx + -1] * operator[0+1][-1+1];
+		res += input[(posy + 0)*SIZE + posx + 0] * operator[0+1][0+1];
+		res += input[(posy + 0)*SIZE + posx + 1] * operator[0+1][1+1];
+		res += input[(posy + 1)*SIZE + posx + -1] * operator[1+1][-1+1];
+		res += input[(posy + 1)*SIZE + posx + 0] * operator[1+1][0+1];
+		res += input[(posy + 1)*SIZE + posx + 1] * operator[1+1][1+1];
+	#else
+		#ifdef LOOP_SWAP
+		for (i = -1; i <= 1; i++) {
+				for (j = -1; j <= 1; j++) {
+		#else
+		for (j = -1; j <= 1; j++) {
+			for (i = -1; i <= 1; i++) {
+		#endif
+				res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
+			}
+		}
+	#endif
 	
 	return(res);
 }
@@ -81,7 +108,9 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	int res;
 	struct timespec  tv1, tv2;
 	FILE *f_in, *f_out, *f_golden;
+	#ifdef FUNCTION_INLINE
 	int conv_res1, conv_res2;
+	#endif
 
 	/* The first and last row of the output array, as well as the first  *
      * and last element of each column are not going to be filled by the *
@@ -126,14 +155,73 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	/* For each pixel of the output image */
 
 	
+	#ifdef LOOP_SWAP
 	// better cache locality
 	for (i=1; i<SIZE-1; i+=1 ) {
 			for (j=1; j<((SIZE-1)); j+=1) {
+	#else
+	for (j=1; j<SIZE-1; j+=1) {
+		for (i=1; i<((SIZE-1)); i+=1) {
+	#endif
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
-			conv_res1 = convolution2D(i, j, input, horiz_operator);
-			conv_res2 = convolution2D(i, j, input, vert_operator);
-			p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            #ifdef FUNCTION_INLINE
+				#ifdef FUNC_INLINE
+					// Inline version of convolution2D for horizontal operator
+					conv_res1 = 0;
+					conv_res1 += input[(i - 1)*SIZE + (j - 1)] * horiz_operator[0][0];
+					conv_res1 += input[(i - 1)*SIZE + (j    )] * horiz_operator[0][1];
+					conv_res1 += input[(i - 1)*SIZE + (j + 1)] * horiz_operator[0][2];
+					conv_res1 += input[(i    )*SIZE + (j - 1)] * horiz_operator[1][0];
+					conv_res1 += input[(i    )*SIZE + (j    )] * horiz_operator[1][1];
+					conv_res1 += input[(i    )*SIZE + (j + 1)] * horiz_operator[1][2];
+					conv_res1 += input[(i + 1)*SIZE + (j - 1)] * horiz_operator[2][0];
+					conv_res1 += input[(i + 1)*SIZE + (j    )] * horiz_operator[2][1];
+					conv_res1 += input[(i + 1)*SIZE + (j + 1)] * horiz_operator[2][2];
+					conv_res2 = 0;
+					conv_res2 += input[(i - 1)*SIZE + (j - 1)] * vert_operator[0][0];
+					conv_res2 += input[(i - 1)*SIZE + (j    )] * vert_operator[0][1];
+					conv_res2 += input[(i - 1)*SIZE + (j + 1)] * vert_operator[0][2];
+					conv_res2 += input[(i    )*SIZE + (j - 1)] * vert_operator[1][0];
+					conv_res2 += input[(i    )*SIZE + (j    )] * vert_operator[1][1];
+					conv_res2 += input[(i    )*SIZE + (j + 1)] * vert_operator[1][2];
+					conv_res2 += input[(i + 1)*SIZE + (j - 1)] * vert_operator[2][0];
+					conv_res2 += input[(i + 1)*SIZE + (j    )] * vert_operator[2][1];
+					conv_res2 += input[(i + 1)*SIZE + (j + 1)] * vert_operator[2][2];
+				#else
+				conv_res1 = convolution2D(i, j, input, horiz_operator);
+				conv_res2 = convolution2D(i, j, input, vert_operator);
+				#endif
+				p = (conv_res1 * conv_res1) + (conv_res2 * conv_res2);
+            #else
+				#ifdef FUNC_INLINE
+				int conv_res1 = 0, conv_res2 = 0;
+				// Inline version of convolution2D for horizontal operator
+				conv_res1 += input[(i - 1)*SIZE + (j - 1)] * horiz_operator[0][0];
+				conv_res1 += input[(i - 1)*SIZE + (j    )] * horiz_operator[0][1];
+				conv_res1 += input[(i - 1)*SIZE + (j + 1)] * horiz_operator[0][2];
+				conv_res1 += input[(i    )*SIZE + (j - 1)] * horiz_operator[1][0];
+				conv_res1 += input[(i    )*SIZE + (j    )] * horiz_operator[1][1];
+				conv_res1 += input[(i    )*SIZE + (j + 1)] * horiz_operator[1][2];
+				conv_res1 += input[(i + 1)*SIZE + (j - 1)] * horiz_operator[2][0];
+				conv_res1 += input[(i + 1)*SIZE + (j    )] * horiz_operator[2][1];
+				conv_res1 += input[(i + 1)*SIZE + (j + 1)] * horiz_operator[2][2];
+				// Inline version of convolution2D for vertical operator
+				conv_res2 += input[(i - 1)*SIZE + (j - 1)] * vert_operator[0][0];
+				conv_res2 += input[(i - 1)*SIZE + (j    )] * vert_operator[0][1];
+				conv_res2 += input[(i - 1)*SIZE + (j + 1)] * vert_operator[0][2];
+				conv_res2 += input[(i    )*SIZE + (j - 1)] * vert_operator[1][0];
+				conv_res2 += input[(i    )*SIZE + (j    )] * vert_operator[1][1];
+				conv_res2 += input[(i    )*SIZE + (j + 1)] * vert_operator[1][2];
+				conv_res2 += input[(i + 1)*SIZE + (j - 1)] * vert_operator[2][0];
+				conv_res2 += input[(i + 1)*SIZE + (j    )] * vert_operator[2][1];
+				conv_res2 += input[(i + 1)*SIZE + (j + 1)] * vert_operator[2][2];
+				p = conv_res1 * conv_res1 + conv_res2 * conv_res2;
+				#else
+				p = pow(convolution2D(i, j, input, horiz_operator), 2) + 
+					pow(convolution2D(i, j, input, vert_operator), 2);
+				#endif
+            #endif
 			res = (int)sqrt(p);
 			/* If the resulting value is greater than 255, clip it *
 			 * to 255.											   */
@@ -153,9 +241,47 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	printf("UNROLL FACTOR = %d\n", UNROLL_FACTOR);
 	for (i=1; i<SIZE-1; i++) {
 		int j_end = SIZE - 1;
-		for ( j=4; j<j_end; j+=UNROLL_FACTOR ) {
-			t = output[i*SIZE+j]*output[i*SIZE+j] - golden[i*SIZE+j]*golden[i*SIZE+j];
+		#if UNROLL_FACTOR == 4
+			#ifdef FUNCTION_INLINE
+			t = output[i*SIZE+1]*output[i*SIZE+1] - golden[i*SIZE+1]*golden[i*SIZE+1];
 			PSNR += t;
+			t = output[i*SIZE+2]*output[i*SIZE+2] - golden[i*SIZE+2]*golden[i*SIZE+2];
+			PSNR += t;
+			t = output[i*SIZE+3]*output[i*SIZE+3] - golden[i*SIZE+3]*golden[i*SIZE+3];
+			PSNR += t;
+			#else
+			t = pow((output[i*SIZE+1] - golden[i*SIZE+1]),2);
+			PSNR += t;
+			t = pow((output[i*SIZE+2] - golden[i*SIZE+2]),2);
+			PSNR += t;
+			t = pow((output[i*SIZE+3] - golden[i*SIZE+3]),2);
+			PSNR += t;
+			#endif
+		#endif
+		for ( j=4; j<j_end; j+=UNROLL_FACTOR ) {
+			#ifdef FUNCTION_INLINE
+			t = output[i*SIZE+j]*output[i*SIZE+j] - golden[i*SIZE+j]*golden[i*SIZE+j];
+			#else
+			t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
+			#endif
+			PSNR += t;
+			#if UNROLL_FACTOR == 4
+				#ifdef FUNCTION_INLINE
+				t = output[i*SIZE+j+1]*output[i*SIZE+j+1] - golden[i*SIZE+j+1]*golden[i*SIZE+j+1];
+				PSNR += t;
+				t = output[i*SIZE+j+2]*output[i*SIZE+j+2] - golden[i*SIZE+j+2]*golden[i*SIZE+j+2];
+				PSNR += t;
+				t = output[i*SIZE+j+3]*output[i*SIZE+j+3] - golden[i*SIZE+j+3]*golden[i*SIZE+j+3];
+				PSNR += t;
+				#else
+				t = pow((output[i*SIZE+j+1] - golden[i*SIZE+j+1]),2);
+				PSNR += t;
+				t = pow((output[i*SIZE+j+2] - golden[i*SIZE+j+2]),2);
+				PSNR += t;
+				t = pow((output[i*SIZE+j+3] - golden[i*SIZE+j+3]),2);
+				PSNR += t;
+				#endif
+			#endif
 		}
 	}
 	

@@ -212,8 +212,8 @@ if __name__ == "__main__":
         ("O3_ZNVER4", "-O3 -march=znver4 -mtune=znver4"),
     ]
     # def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION"]
-    # def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION", "-DFUNC_INLINE"]
-    def_flags = [""]
+    def_flags = ["", "-DLOOP_SWAP", "-DLOOP_UNROLL", "-DLOOP_UNROLL2", "-DCOMPILER_ASSIST", "-DSTRENGTH_REDUCTION", "-DFUNC_INLINE"]
+    # def_flags = [""]
 
 
     tests = []
