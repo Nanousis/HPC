@@ -1,0 +1,10 @@
+In order to compile and run the parallelized version with Open MP change the Makefile.
+
+Replace seq_kmeans with par_kmeans
+
+SEQ_SRC     = seq_main.c   \
+              seq_kmeans.c \                //Change to par_kmeans
+	      wtime.c
+
+seq_kmeans.o: seq_kmeans.c $(H_FILES)       //Change to par_kmeans
+	$(CC) $(CFLAGS) -c $*.c
