@@ -98,6 +98,24 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
 
     for (i=1; i<numClusters; i++)
         newClusters[i] = newClusters[i-1] + numCoords;
+ 
+ 
+    int nthreads;
+    #pragma omp parallel
+    {
+        #pragma omp single
+        nthreads = omp_get_num_threads();
+    }
+
+    int **localClusterSizes = (int **) malloc(nthreads * sizeof(int *));
+    double ***localClusters = (double ***) malloc(nthreads * sizeof(double **));
+
+    for (int t = 0; t < nthreads; t++) {
+        localClusterSizes[t] = (int *) calloc(numClusters, sizeof(int));
+        localClusters[t] = (double **) malloc(numClusters * sizeof(double *));
+        for (i = 0; i < numClusters; i++)
+            localClusters[t][i] = (double *) calloc(numCoords, sizeof(double));
+    }
 
     /* use openMP to parallelize*/
     do {
@@ -106,10 +124,11 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
         #pragma omp parallel private(i, j, index)
         {
             //initialiaze local variables
-            int *localNewClusterSize = (int *) calloc(numClusters, sizeof(int));
-            double **localNewClusters = (double **) malloc(numClusters * sizeof(double *));
+            int tid = omp_get_thread_num();
             for (i = 0; i < numClusters; i++) {
-                localNewClusters[i] = (double *) calloc(numCoords, sizeof(double));
+                localClusterSizes[tid][i] = 0;
+                for (j = 0; j < numCoords; j++)
+                    localClusters[tid][i][j] = 0.0;
             }
 
 
@@ -127,29 +146,29 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
 
                 /* update new cluster center : sum of objects located within */
                 //newClusterSize[index]++;
-                localNewClusterSize[index]++;
+                localClusterSizes[tid][index]++;
                 for (j=0; j<numCoords; j++)
-                    localNewClusters[index][j] += objects[i][j];
+                    localClusters[tid][index][j] += objects[i][j];
                     //newClusters[index][j] += objects[i][j];
             }
 
             #pragma omp critical
             {
                 for (i = 0; i < numClusters; i++) {
-                    newClusterSize[i] += localNewClusterSize[i];
+                    newClusterSize[i] += localClusterSizes[tid][i];
                     for (j = 0; j < numCoords; j++)
-                        newClusters[i][j] += localNewClusters[i][j];
+                        newClusters[i][j] += localClusters[tid][i][j];
                 }
             }
 
             //free local variables
-            for (i = 0; i < numClusters; i++)
-            free(localNewClusters[i]);
-            free(localNewClusterSize);
-            free(localNewClusters);
-
         }
-       
+        // for(int t = 0; t < nthreads; t++) {
+        //     for (i = 0; i < numClusters; i++)
+        //         free(localClusters[t][i]);
+        //     free(localClusterSizes[t]);
+        //     free(localClusters[t]);
+        // }
         /* average the sum and replace old cluster center with newClusters */
         #pragma omp parallel for private(j) schedule(guided,10)
         for (i=0; i<numClusters; i++) {
