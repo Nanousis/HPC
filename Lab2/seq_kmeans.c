@@ -95,15 +95,22 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
     newClusters[0] = (float*)  calloc(numClusters * numCoords, sizeof(float));
     assert(newClusters[0] != NULL);
 
+    double timing = wtime();
+    double timing2 = wtime();
     for (i=1; i<numClusters; i++)
         newClusters[i] = newClusters[i-1] + numCoords;
+    printf("Allocation of newClusters took %f seconds\n", wtime() - timing);
+    double for_loop1=0.0, for_loop2=0.0, function_time=0.0, store_cluster_time=0.0;
     do {
         delta = 0.0;
+        timing = wtime();
         for (i=0; i<numObjs; i++) {
             /* find the array index of nestest cluster center */
+            timing2 = wtime();
             index = find_nearest_cluster(numClusters, numCoords, objects[i],
                                          clusters);
-
+            function_time += wtime() - timing2;
+            timing2 = wtime();
             /* if membership changes, increase delta by 1 */
             if (membership[i] != index) delta += 1.0;
 
@@ -114,9 +121,11 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
             newClusterSize[index]++;
             for (j=0; j<numCoords; j++)
                 newClusters[index][j] += objects[i][j];
+            store_cluster_time += wtime() - timing2;
         }
-
+        for_loop1 += wtime() - timing;
         /* average the sum and replace old cluster center with newClusters */
+        timing = wtime();
         for (i=0; i<numClusters; i++) {
             for (j=0; j<numCoords; j++) {
                 if (newClusterSize[i] > 0)
@@ -125,10 +134,13 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
             }
             newClusterSize[i] = 0;   /* set back to 0 */
         }
-            
+        for_loop2 += wtime() - timing;
         delta /= numObjs;
     } while (delta > threshold && loop++ < 500);
-
+    printf("For loop 1 (assignment) took %f seconds\n", for_loop1);
+    printf("Function time in find_nearest_cluster took %f seconds\n", function_time);
+    printf("Time storing in newClusters took %f seconds\n", store_cluster_time);
+    printf("For loop 2 (update centers) took %f seconds\n", for_loop2);
     free(newClusters[0]);
     free(newClusters);
     free(newClusterSize);
