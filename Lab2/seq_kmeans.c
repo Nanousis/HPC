@@ -137,10 +137,10 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
         for_loop2 += wtime() - timing;
         delta /= numObjs;
     } while (delta > threshold && loop++ < 500);
-    printf("For loop 1 (assignment) took %f seconds\n", for_loop1);
-    printf("Function time in find_nearest_cluster took %f seconds\n", function_time);
-    printf("Time storing in newClusters took %f seconds\n", store_cluster_time);
-    printf("For loop 2 (update centers) took %f seconds\n", for_loop2);
+    // printf("For loop 1 (assignment) took %f seconds\n", for_loop1);
+    // printf("Function time in find_nearest_cluster took %f seconds\n", function_time);
+    // printf("Time storing in newClusters took %f seconds\n", store_cluster_time);
+    // printf("For loop 2 (update centers) took %f seconds\n", for_loop2);
     free(newClusters[0]);
     free(newClusters);
     free(newClusterSize);
