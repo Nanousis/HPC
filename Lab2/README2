@@ -11,3 +11,14 @@ To test the Parallel version run:
 You can change the number of threads with 
 export OMP_NUM_THREADS=X 
 where X is the number of threads you want to use.
+
+To run the tests 
+```
+python3 measure_time.py -- -o -b -n 2000 -i Image_data/texture17695.bin
+```
+
+Then to get the plots
+
+`python3 plot_results.py timings_summary.csv`
+
+

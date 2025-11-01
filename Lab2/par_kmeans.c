@@ -111,14 +111,15 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
     double ***localClusters = (double ***) malloc(nthreads * sizeof(double **));
 
     for (int t = 0; t < nthreads; t++) {
-        localClusterSizes[t] = (int *) calloc(numClusters, sizeof(int));
+        localClusterSizes[t] = (int *) malloc(numClusters * sizeof(int));
         localClusters[t] = (double **) malloc(numClusters * sizeof(double *));
         for (i = 0; i < numClusters; i++)
-            localClusters[t][i] = (double *) calloc(numCoords, sizeof(double));
+            localClusters[t][i] = (double *) malloc(numCoords * sizeof(double));
     }
 
     /* use openMP to parallelize*/
     do {
+
         delta = 0.0;
 
         #pragma omp parallel private(i, j, index)
@@ -179,8 +180,10 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
             }
             newClusterSize[i] = 0;   /* set back to 0 */
         }
-            
-        delta /= numObjs;
+        #pragma omp single
+        {
+            delta /= numObjs;
+        }
     } while (delta > threshold && loop++ < 500);
     
     
