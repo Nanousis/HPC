@@ -154,19 +154,17 @@ __global__ void compute_all_luts_kernel(const unsigned char* d_img,
     }
 
     __syncthreads();
-    // technically this can be done by one thread but then synchgronization is needed
-    avg_inc = excess / 256u;
-
-    hist[tid] += avg_inc;
-    __syncthreads();
 
     #ifndef SERIAL_CDF
     // This is a parallel exclusive scan to do the same thing we did in the presentations
     __shared__ unsigned int cdf_s[256];
+    avg_inc = excess / 256u;
 
+    hist[tid] += avg_inc;
     cdf_s[tid] = hist[tid];
     __syncthreads();
 
+    // upsweep (reduce)
     for (int stride = 1; stride < 256; stride <<= 1) {
         int idx = ((tid + 1) << 1) * stride - 1;
         if (idx < 256)
@@ -177,6 +175,7 @@ __global__ void compute_all_luts_kernel(const unsigned char* d_img,
     if (tid == 255) cdf_s[255] = 0;
     __syncthreads();
 
+    // downsweep
     for (int stride = 128; stride >= 1; stride >>= 1) {
         int idx = ((tid + 1) << 1) * stride - 1;
         if (idx < 256) {
@@ -197,6 +196,12 @@ __global__ void compute_all_luts_kernel(const unsigned char* d_img,
     if (val > 255) val = 255;
     d_all_luts[lut_base + tid] = val;
     #else
+        // technically this can be done by one thread but then synchgronization is needed
+    avg_inc = excess / 256u;
+
+    hist[tid] += avg_inc;
+    __syncthreads();
+
     // Serialk Compute CDF and LUT
     if (tid == 0) {
         const int total_pixels = tile_w * tile_h;

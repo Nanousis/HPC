@@ -39,7 +39,7 @@ unsigned int filter_radius;
 
 #define FILTER_LENGTH 	(2 * filter_radius + 1)
 #define ABS(val)  	((val)<0.0 ? (-(val)) : (val))
-#define accuracy  	5.0
+#define accuracy  	0
 typedef float f_data;
 
  
@@ -146,19 +146,17 @@ bool checkResults(f_data *hostRef, f_data *gpuRef, double epsilon, const int SIZ
   float max_delta = 0.0f;
   for (int i = 0; i < SIZE; i++) {
     float delta = ABS(hostRef[i] - gpuRef[i]);
+    match = false;
+    if (delta > max_delta) {
+      max_delta = delta;
+    }
     if (delta > epsilon) {
-      match = false;
-      if (delta > max_delta) {
-        max_delta = delta;
-      }
       printf("Arrays do not match!\n");
       printf("host %f gpu %f at current %d, delta = %f, epsilon = %f\n", hostRef[i], gpuRef[i], i, ABS(hostRef[i] - gpuRef[i]), epsilon);
       break;
     }
   }
-  if (!match) {
-    printf("Max delta: %f\n", max_delta);
-  }
+  printf("Max delta: %f\n", max_delta);
   return match;
 }
 

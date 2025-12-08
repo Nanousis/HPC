@@ -60,7 +60,7 @@ unsigned int filter_radius;
 
 #define FILTER_LENGTH 	(2 * filter_radius + 1)
 #define ABS(val)  	((val)<0.0 ? (-(val)) : (val))
-#define accuracy  	10
+#define accuracy  	0
 typedef float f_data;
 
  
@@ -232,14 +232,14 @@ bool checkResults_both_padded(f_data *hostRef, f_data *gpuRef, double epsilon, c
     for(int j = 0; j < width; j++) {
       int idx = WRITE_TO_PADDED_IMAGE(j, i, PADDED_WIDTH(width, filter_radius), filter_radius);
       float delta = ABS(hostRef[idx] - gpuRef[idx]);
+      if (delta > max_delta) {
+        max_delta = delta;
+      }
       if (delta > epsilon) {
         match = false;
-        if (delta > max_delta) {
-          max_delta = delta;
-        }
         printf("Arrays do not match!\n");
         printf("host %f gpu %f at current %d, delta = %f, epsilon = %f\n", hostRef[idx], gpuRef[idx], i, ABS(hostRef[idx] - gpuRef[idx]), epsilon);
-        goto exit_error;
+        // goto exit_error;
       }
     }
   }
@@ -255,14 +255,14 @@ bool checkResults(f_data *hostRef, f_data *gpuRef, double epsilon, const int wid
     for(int j = 0; j < width; j++) {
       int idx = WRITE_TO_PADDED_IMAGE(j, i, PADDED_WIDTH(width, filter_radius), filter_radius);
       float delta = ABS(hostRef[i*height + j] - gpuRef[idx]);
+      if (delta > max_delta) {
+        max_delta = delta;
+      }
       if (delta > epsilon) {
         match = false;
-        if (delta > max_delta) {
-          max_delta = delta;
-        }
         printf("Arrays do not match!\n");
-        printf("host %f [%d] gpu %f [%d] at current (%d,%d), delta = %f, epsilon = %f\n", hostRef[i*height + j], i*height + j, gpuRef[idx], idx, j, i, ABS(hostRef[i*height + j] - gpuRef[idx]), epsilon);
-        goto exit_error;
+        printf("host %f [%d] gpu %f [%d] at current (%d,%d), delta = %f, epsilon = %f\n", hostRef[i*height + j], i*height + j, gpuRef[idx], idx, j, i, delta, epsilon);
+        // goto exit_error;
       }
     }
   }
@@ -271,7 +271,24 @@ bool checkResults(f_data *hostRef, f_data *gpuRef, double epsilon, const int wid
   return match;
 }
 
-
+bool checkResults2(f_data *hostRef, f_data *gpuRef, double epsilon, const int SIZE) {
+  bool match = true;
+  float max_delta = 0.0f;
+  for (int i = 0; i < SIZE; i++) {
+    float delta = ABS(hostRef[i] - gpuRef[i]);
+    match = false;
+    if (delta > max_delta) {
+      max_delta = delta;
+    }
+    if (delta > epsilon) {
+      printf("Arrays do not match!\n");
+      printf("host %f gpu %f at current %d, delta = %f, epsilon = %f\n", hostRef[i], gpuRef[i], i, ABS(hostRef[i] - gpuRef[i]), epsilon);
+      break;
+    }
+  }
+  printf("Max delta: %f\n", max_delta);
+  return match;
+}
 ////////////////////////////////////////////////////////////////////////////////
 // Main program
 ////////////////////////////////////////////////////////////////////////////////
@@ -448,7 +465,9 @@ int main(int argc, char **argv) {
     }
     #endif
     #ifdef DEBUG
-    bool res = checkResults_both_padded(h_OutputCPU, h_OutputGPU, accuracy, imageW, imageH, filter_radius);
+
+    bool res = checkResults2(h_OutputCPU, h_OutputGPU, accuracy, paddedImageH * paddedImageW);
+    // bool res = checkResults_both_padded(h_OutputCPU, h_OutputGPU, accuracy, imageW, imageH, filter_radius);
     #else
     bool res = checkResults(h_OutputCPU, h_OutputGPU, accuracy, imageW, imageH, filter_radius);
     #endif

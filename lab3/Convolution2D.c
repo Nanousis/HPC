@@ -5,16 +5,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <cuda_runtime.h>
-
-#include <time.h>
-
-double now() {
-    struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);   // monotonic = won't jump if system time changes
-    return t.tv_sec + t.tv_nsec * 1e-9;
-}
-
 
 unsigned int filter_radius;
 
@@ -94,37 +84,6 @@ int main(int argc, char **argv) {
     int imageH;
     unsigned int i;
 
-
-  int count = 0;
-  cudaGetDeviceCount(&count);
-
-  if(count==0){
-      printf("No devices supporting CUDA.\n");
-      return 0;
-  }
-
-  for (int i = 0; i < count; i++) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, i);
-
-    printf("Device %d: %s\n", i, prop.name);
-    printf("  Compute capability:   %d.%d\n", prop.major, prop.minor);
-    printf("  Total global memory:  %zu MB\n", prop.totalGlobalMem / (1024 * 1024));
-    printf("  Shared memory/block:  %zu KB\n", prop.sharedMemPerBlock / 1024);
-    printf("  Registers/block:      %d\n", prop.regsPerBlock);
-    printf("  Warp size:            %d\n", prop.warpSize);
-    printf("  Max threads/block:    %d\n", prop.maxThreadsPerBlock);
-    printf("  Multiprocessors:      %d\n", prop.multiProcessorCount);
-    printf("  Max threads dim:      (%d, %d, %d)\n",
-            prop.maxThreadsDim[0], prop.maxThreadsDim[1], prop.maxThreadsDim[2]);
-    printf("  Max grid size:        (%d, %d, %d)\n",
-            prop.maxGridSize[0], prop.maxGridSize[1], prop.maxGridSize[2]);
-
-    printf("--------------------------------------\n");
-  }
-
-
-
 	printf("Enter filter radius : ");
 	scanf("%d", &filter_radius);
 
@@ -161,20 +120,17 @@ int main(int argc, char **argv) {
 
     // To parakatw einai to kommati pou ekteleitai sthn CPU kai me vash auto prepei na ginei h sugrish me thn GPU.
     printf("CPU computation...\n");
-    double start = now();
+
     convolutionRowCPU(h_Buffer, h_Input, h_Filter, imageW, imageH, filter_radius); // convolution kata grammes
     convolutionColumnCPU(h_OutputCPU, h_Buffer, h_Filter, imageW, imageH, filter_radius); // convolution kata sthles
-    double end = now();
-    printf("CPU computation time: %f sec\n", end - start);
+
 
     // Kanete h sugrish anamesa se GPU kai CPU kai an estw kai kapoio apotelesma xeperna thn akriveia
     // pou exoume orisei, tote exoume sfalma kai mporoume endexomenws na termatisoume to programma mas  
 
 
-
     // free all the allocated memory
     free(h_OutputCPU);
-    free(h_OutputGPU);
     free(h_Buffer);
     free(h_Input);
     free(h_Filter);

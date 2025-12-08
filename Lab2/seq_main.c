@@ -180,6 +180,7 @@ int main(int argc, char **argv) {
         clustering_timing = timing - clustering_timing;
     }
 
+    printf("filename = %s\n", filename);
     /* output: the coordinates of the cluster centres ----------------------*/
     file_write(filename, numClusters, numObjs, numCoords, clusters,
                membership, verbose);

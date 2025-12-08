@@ -16,7 +16,6 @@ CPU_TARGET  := clahe_cpu
 # GPU (CUDA) configuration
 ########################
 GPU_NVCC     := nvcc
-# NOTE: -O4 is not valid in CUDA; use -O3. Adjust arch as needed (e.g., sm_86, sm_75, sm_61).
 GPU_CFLAGS   := -O4 
 GPU_LDFLAGS  :=
 GPU_LDLIBS   := -lm
@@ -26,7 +25,7 @@ GPU_OBJ      := $(GPU_SRC:%.cu=build/gpu/%.o)
 GPU_TARGET   := clahe_gpu
 
 
-INPUT_IMAGE_DIR   := ../Images/senator.pgm
+INPUT_IMAGE_DIR   := ../Images/planet_surface.pgm
 OUTPUT_IMAGE_NAME := output
 
 ########################

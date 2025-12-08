@@ -148,9 +148,6 @@ PGM_IMG apply_clahe(PGM_IMG img_in) {
     for (y = 0; y < h; ++y) {
         for (x = 0; x < w; ++x) {
             
-            // Find relative position in the grid
-            // (y / TILE_SIZE) gives the tile index, but we want the center approach
-            // So we offset by 0.5 to align interpolation with tile centers
             ty_f = (float)y / TILE_SIZE - 0.5f;
             tx_f = (float)x / TILE_SIZE - 0.5f;
             
@@ -159,12 +156,8 @@ PGM_IMG apply_clahe(PGM_IMG img_in) {
             y2 = y1 + 1;
             x2 = x1 + 1;
 
-            // Weights for interpolation
             y_weight = ty_f - y1;
             x_weight = tx_f - x1;
-
-            // Clamp tile indices to boundaries 
-            // If a pixel is near the edge, it might not have 4 neighbors
             if (x1 < 0) 
                 x1 = 0;
             if (x2 >= grid_w) 
@@ -173,17 +166,12 @@ PGM_IMG apply_clahe(PGM_IMG img_in) {
                 y1 = 0;
             if (y2 >= grid_h) 
                 y2 = grid_h - 1;
-
-            // Original pixel intensity
             val = img_in.img[y * w + x];
             
-            // Fetch mapped values from the 4 nearest tile LUTs
             tl = all_luts[(y1 * grid_w + x1) * 256 + val];
             tr = all_luts[(y1 * grid_w + x2) * 256 + val];
             bl = all_luts[(y2 * grid_w + x1) * 256 + val];
             br = all_luts[(y2 * grid_w + x2) * 256 + val];
-
-            // Bilinear interpolation
             top = tl * (1.0f - x_weight) + tr * x_weight;
             bot = bl * (1.0f - x_weight) + br * x_weight;
             final_val = top * (1.0f - y_weight) + bot * y_weight;
