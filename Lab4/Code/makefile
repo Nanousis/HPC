@@ -25,7 +25,7 @@ GPU_OBJ      := $(GPU_SRC:%.cu=build/gpu/%.o)
 GPU_TARGET   := clahe_gpu
 
 
-INPUT_IMAGE_DIR   := ../Images/planet_surface.pgm
+INPUT_IMAGE_DIR   := ../Images/senator.pgm
 OUTPUT_IMAGE_NAME := output
 
 ########################

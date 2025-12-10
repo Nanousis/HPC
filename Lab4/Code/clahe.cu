@@ -43,7 +43,7 @@ PGM_IMG read_pgm(const char * path){
     fscanf(in_file, "%d",&v_max);
     fgetc(in_file); // Skip the single whitespace/newline after max_val
 
-    result.img = (unsigned char *)malloc(result.w * result.h * sizeof(unsigned char));
+    CUDA_CHECK(cudaMallocManaged((void**)&result.img, result.w * result.h * sizeof(unsigned char)));
     fread(result.img, sizeof(unsigned char), result.w*result.h, in_file);    
     fclose(in_file);
     
@@ -63,7 +63,7 @@ void write_pgm(PGM_IMG img, const char * path){
 
 // Helper: Free PGM Memory
 void free_pgm(PGM_IMG img) {
-    if(img.img) free(img.img);
+    if(img.img) cudaFree(img.img);
 }
 
 // Compute & Clip Histogram for a specific tile
@@ -307,32 +307,34 @@ PGM_IMG apply_clahe(PGM_IMG h_img_in) {
     }
     printf("-------------------------\n");
 
-    PGM_IMG d_img_out;
+    // PGM_IMG d_img_out;
     PGM_IMG h_img_out;
-    PGM_IMG d_img_in;
+    // PGM_IMG d_img_in;
     int w = h_img_in.w;
     int h = h_img_in.h;
     int grid_w, grid_h;
-    int *h_all_luts, *d_all_luts; // Big array to store LUTs for all tiles
+    int *h_all_luts, *d_all_luts; 
     int* current_lut_ptr;
     int ty, tx, x, y, x1, x2, y1, y2, tl, tr, bl, br, val;
     int x_start, y_start, actual_tile_w, actual_tile_h;
     float tx_f, ty_f, x_weight, y_weight, top, bot, final_val;
+    double start_time = get_time_sec();
+
+
     // Allocate output image
     h_img_out.w = w;
     h_img_out.h = h;
-    h_img_out.img = (unsigned char *)malloc(w * h * sizeof(unsigned char));
+    CUDA_CHECK(cudaMallocManaged((void**)&h_img_out.img, w * h * sizeof(unsigned char)));
     
     
-    double start_time = get_time_sec();
-    d_img_out.w = w;
-    d_img_out.h = h;
-    CUDA_CHECK(cudaMalloc((void**)&d_img_out.img, w * h * sizeof(unsigned char)));
+    // d_img_out.w = w;
+    // d_img_out.h = h;
+    // CUDA_CHECK(cudaMalloc((void**)&d_img_out.img, w * h * sizeof(unsigned char)));
 
-    d_img_in.w = w;
-    d_img_in.h = h;
-    CUDA_CHECK(cudaMalloc((void**)&d_img_in.img, w * h * sizeof(unsigned char)));
-    CUDA_CHECK(cudaMemcpy(d_img_in.img, h_img_in.img, w * h * sizeof(unsigned char), cudaMemcpyHostToDevice));
+    // d_img_in.w = w;
+    // d_img_in.h = h;
+    // CUDA_CHECK(cudaMalloc((void**)&d_img_in.img, w * h * sizeof(unsigned char)));
+    // CUDA_CHECK(cudaMemcpy(d_img_in.img, h_img_in.img, w * h * sizeof(unsigned char), cudaMemcpyHostToDevice));
 
     // Calculate grid dimensions
     grid_w = (w + TILE_SIZE - 1) / TILE_SIZE;
@@ -350,7 +352,7 @@ PGM_IMG apply_clahe(PGM_IMG h_img_in) {
     dim3 lutGrid(grid_w, grid_h);
 
     start_time = get_time_sec();
-    compute_all_luts_kernel<<<lutGrid, lutBlock>>>(d_img_in.img, w, h, d_all_luts, grid_w, grid_h);
+    compute_all_luts_kernel<<<lutGrid, lutBlock>>>(h_img_in.img, w, h, d_all_luts, grid_w, grid_h);
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaGetLastError());
     double precomp_time = get_time_sec() - start_time;
@@ -367,20 +369,20 @@ PGM_IMG apply_clahe(PGM_IMG h_img_in) {
     start_time = get_time_sec();
     dim3 block(TILE_SIZE, TILE_SIZE);
     dim3 grid((w + block.x - 1) / block.x, (h + block.y - 1) / block.y);
-    render_image<<<grid, block>>>(d_img_in.img, d_img_out.img, w, h, d_all_luts, grid_w, grid_h);
+    render_image<<<grid, block>>>(h_img_in.img, h_img_out.img, w, h, d_all_luts, grid_w, grid_h);
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaGetLastError());
     double render_time = get_time_sec() - start_time;
-
+    // cudaDeviceSynchronize();
     // copy out
-    CUDA_CHECK(cudaMemcpy(h_img_out.img, d_img_out.img, w * h, cudaMemcpyDeviceToHost));
+    // CUDA_CHECK(cudaMemcpy(h_img_out.img, d_img_out.img, w * h, cudaMemcpyDeviceToHost));
     printf("Precomputation Time: %f seconds\n", precomp_time);
     printf("Rendering Time: %f seconds\n", render_time);
 
-    // cleanup
+    // // cleanup
     CUDA_CHECK(cudaFree(d_all_luts));
-    CUDA_CHECK(cudaFree(d_img_in.img));
-    CUDA_CHECK(cudaFree(d_img_out.img));
+    // CUDA_CHECK(cudaFree(d_img_in.img));
+    // CUDA_CHECK(cudaFree(d_img_out.img));
     free(h_all_luts);
     return h_img_out;
 }
