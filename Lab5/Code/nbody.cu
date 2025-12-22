@@ -38,72 +38,9 @@ typedef struct {
 */
 #define CUDA_BLOCK_SIZE 1024
 
-
-
-__global__ void bodyForceKernel_many_systems(Body * p, float dt, int n) {
-    // splits the tile since we have at most 1024 threads per block
-
-    int inner_tile_id = blockIdx.y;
-    int inside_tile_idx = threadIdx.x;
-    int i = blockIdx.x;
-    int j = inside_tile_idx + inner_tile_id * blockDim.x;
-
-    int system_id = blockIdx.z;
-    Body *system_ptr = &p[system_id * n];
-    // printf("System ID: %d\n", system_id);
-
-    __shared__ float total_Fx;
-    __shared__ float total_Fy;
-    __shared__ float total_Fz;
-    // Initiating the Force accumulators
-    __shared__ float Fx[CUDA_BLOCK_SIZE];
-    __shared__ float Fy[CUDA_BLOCK_SIZE];
-    __shared__ float Fz[CUDA_BLOCK_SIZE];
-    float dx, dy, dz, distSqr, invDist, invDist3;
-
-    dx = system_ptr[j].x - system_ptr[i].x;
-    dy = system_ptr[j].y - system_ptr[i].y;
-    dz = system_ptr[j].z - system_ptr[i].z;
-    distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
-    // inverse srt goes brrrrrrrr here
-    // invDist = 1.0f / sqrtf(distSqr);
-    invDist = rsqrtf(distSqr);;
-    invDist3 = invDist * invDist * invDist;
-    Fx[inside_tile_idx] = dx * invDist3;
-    Fy[inside_tile_idx] = dy * invDist3;
-    Fz[inside_tile_idx] = dz * invDist3;
-    __syncthreads();
-
-    // add the stuff inside each subtile
-    for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
-        if (inside_tile_idx < s) {
-            Fx[inside_tile_idx] += Fx[inside_tile_idx + s];
-            Fy[inside_tile_idx] += Fy[inside_tile_idx + s];
-            Fz[inside_tile_idx] += Fz[inside_tile_idx + s];
-        }
-        __syncthreads(); 
-    }
-    if(inside_tile_idx == 0){
-        atomicAdd(&p[i].vx, dt * Fx[0]);
-    }
-    if(inside_tile_idx == 1){
-        atomicAdd(&p[i].vy, dt * Fy[0]);
-    }
-    if(inside_tile_idx == 2){
-        atomicAdd(&p[i].vz, dt * Fz[0]);
-    }
-
-}
-__global__ void integrateKernel_many_systems(Body * p, float dt, int n) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int system_id = blockIdx.z;
-    Body *system_ptr = &p[system_id * n];
-    if (i < n) {
-        system_ptr[i].x += system_ptr[i].vx * dt;
-        system_ptr[i].y += system_ptr[i].vy * dt;
-        system_ptr[i].z += system_ptr[i].vz * dt;
-    }
-}
+typedef struct {
+    float x,y,z;
+} Force;
 
 __global__ void bodyForceKernel(Body * p, float dt, int n) {
     // splits the tile since we have at most 1024 threads per block
@@ -111,51 +48,47 @@ __global__ void bodyForceKernel(Body * p, float dt, int n) {
     int inside_tile_idx = threadIdx.x;
     int i = blockIdx.x;
     int j = inside_tile_idx + inner_tile_id * blockDim.x;
-    Body pi = p[i];
-    Body pj = p[j];
 
-    __shared__ float total_Fx;
-    __shared__ float total_Fy;
-    __shared__ float total_Fz;
     // Initiating the Force accumulators
-    __shared__ float Fx[CUDA_BLOCK_SIZE];
-    __shared__ float Fy[CUDA_BLOCK_SIZE];
-    __shared__ float Fz[CUDA_BLOCK_SIZE];
+    __shared__ Force force_shared[CUDA_BLOCK_SIZE];
+    // __shared__ float Fx[CUDA_BLOCK_SIZE];
+    // __shared__ float Fy[CUDA_BLOCK_SIZE];
+    // __shared__ float Fz[CUDA_BLOCK_SIZE];
     float dx, dy, dz, distSqr, invDist, invDist3;
-    dx = pj.x - pi.x;
-    dy = pj.y - pi.y;
-    dz = pj.z - pi.z;
-    distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
+
+    dx = p[j].x - p[i].x;
+    dy = p[j].y - p[i].y;
+    dz = p[j].z - p[i].z;
+    // this can be done with fused multiply add instructions
+    distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+    // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
     // inverse srt goes brrrrrrrr here
     // invDist = 1.0f / sqrtf(distSqr);
     invDist = rsqrtf(distSqr);;
     invDist3 = invDist * invDist * invDist;
-    Fx[inside_tile_idx] = dx * invDist3;
-    Fy[inside_tile_idx] = dy * invDist3;
-    Fz[inside_tile_idx] = dz * invDist3;
+    force_shared[inside_tile_idx].x = dx * invDist3;
+    force_shared[inside_tile_idx].y = dy * invDist3;
+    force_shared[inside_tile_idx].z = dz * invDist3;
     __syncthreads();
 
     // add the stuff inside each subtile
     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
-        if(i==0){
-            printf("s=%d, inside_tile_idx=%d, Fx=%f\n",s,inside_tile_idx,Fx[inside_tile_idx]);
-        }
         if (inside_tile_idx < s) {
-            Fx[inside_tile_idx] += Fx[inside_tile_idx + s];
-            Fy[inside_tile_idx] += Fy[inside_tile_idx + s];
-            Fz[inside_tile_idx] += Fz[inside_tile_idx + s];
+            force_shared[inside_tile_idx].x += force_shared[inside_tile_idx + s].x;
+            force_shared[inside_tile_idx].y += force_shared[inside_tile_idx + s].y;
+            force_shared[inside_tile_idx].z += force_shared[inside_tile_idx + s].z;
         }
-        // __syncthreads(); 
+        __syncthreads(); 
     }
-    // if(inside_tile_idx == 0){
-    //     atomicAdd(&p[i].vx, dt * Fx[0]);
-    // }
-    // if(inside_tile_idx == 1){
-    //     atomicAdd(&p[i].vy, dt * Fy[0]);
-    // }
-    // if(inside_tile_idx == 2){
-    //     atomicAdd(&p[i].vz, dt * Fz[0]);
-    // }
+    if(inside_tile_idx == 0){
+        atomicAdd(&p[i].vx, dt * force_shared[0].x);
+    }
+    if(inside_tile_idx == 1){
+        atomicAdd(&p[i].vy, dt * force_shared[0].y);
+    }
+    if(inside_tile_idx == 2){
+        atomicAdd(&p[i].vz, dt * force_shared[0].z);
+    }
 
 }
 __global__ void integrateKernel(Body * p, float dt, int n) {
@@ -226,6 +159,12 @@ float calc_max_err(Body *a, Body *b, int n) {
 int main(const int argc, const char *argv[]) {
 
     int dev = 0;
+    char validate = 0;
+    if (argc > 2) {
+        if (argv[2][0] == 'v' || argv[2][0] == 'V')
+            validate = 1;
+    }
+
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, dev);
 
@@ -247,7 +186,6 @@ int main(const int argc, const char *argv[]) {
     Body *dataGPU, *dataCPU, *h_data, *system_ptr;
     float *buf;
     double totalTimeGPU, totalTimeCPU, interactions_per_system, total_interactions;
-
     {
         /* Attempt to load dataset */
         fp = fopen("galaxy_data.bin", "rb");
@@ -311,6 +249,7 @@ int main(const int argc, const char *argv[]) {
             }
         }
         outGPU:
+
         totalTimeGPU = GetTimer() / 1000.0;
         /* Metrics calculation */
         interactions_per_system = (double) bodies_per_system * bodies_per_system;
@@ -323,77 +262,78 @@ int main(const int argc, const char *argv[]) {
         free(dataCPU);
         cudaFree(dataGPU);
     }
-
+    if(validate)
     // CPU computation for validation
-    // {
-    //     /* Attempt to load dataset */
-    //     fp = fopen("galaxy_data.bin", "rb");
-    //     if (fp) {
-    //         fread(&num_systems, sizeof(int), 1, fp);
-    //         fread(&bodies_per_system, sizeof(int), 1, fp);
-    //         printf("Found dataset: %d systems of %d bodies.\n", num_systems,
-    //                 bodies_per_system);
-    //     } else {
-    //         printf("No dataset found. Using random initialization.\n");
-    //     }
+    {
+        /* Attempt to load dataset */
+        fp = fopen("galaxy_data.bin", "rb");
+        if (fp) {
+            fread(&num_systems, sizeof(int), 1, fp);
+            fread(&bodies_per_system, sizeof(int), 1, fp);
+            printf("Found dataset: %d systems of %d bodies.\n", num_systems,
+                    bodies_per_system);
+        } else {
+            printf("No dataset found. Using random initialization.\n");
+        }
 
-    //     /* Allocate memory for ALL systems */
-    //     total_bodies = num_systems * bodies_per_system;
-    //     bytes = total_bodies * sizeof(Body);
-    //     dataCPU = (Body *) malloc(bytes);
+        /* Allocate memory for ALL systems */
+        total_bodies = num_systems * bodies_per_system;
+        bytes = total_bodies * sizeof(Body);
+        dataCPU = (Body *) malloc(bytes);
 
-    //     /* Initialize dataCPU */
-    //     if (fp) {
-    //         fread(dataCPU, sizeof(Body), total_bodies, fp);
-    //         fclose(fp);
-    //     } else {
-    //     /* Random initialization if file missing */
-    //         buf = (float *) dataCPU;
-    //         for (int i = 0; i < 6 * total_bodies; i++) {
-    //             buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
-    //         }
-    //     }
+        /* Initialize dataCPU */
+        if (fp) {
+            fread(dataCPU, sizeof(Body), total_bodies, fp);
+            fclose(fp);
+        } else {
+        /* Random initialization if file missing */
+            buf = (float *) dataCPU;
+            for (int i = 0; i < 6 * total_bodies; i++) {
+                buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
+            }
+        }
 
-    //     printf("Running parallel CPU simulation for %d systems...\n",
-    //         num_systems);
+        printf("Running parallel CPU simulation for %d systems...\n",
+            num_systems);
 
-    //     totalTimeCPU = 0.0;
+        totalTimeCPU = 0.0;
 
-    //     StartTimer();
+        StartTimer();
 
-    //     /* Time-steps */
-    //     for (iter = 1; iter <= nIters; iter++) {
-    //         /* Galaxies */
-    //         for (sys = 0; sys < num_systems; sys++) {
-    //             /* Calculate offset for the galaxy */
-    //             system_ptr = &dataCPU[sys * bodies_per_system];
-    //             /* Compute forces & integrate for the galaxy */
-    //             bodyForce(system_ptr, dt, bodies_per_system);
-    //             integrate(system_ptr, dt, bodies_per_system);
+        /* Time-steps */
+        for (iter = 1; iter <= nIters; iter++) {
+            /* Galaxies */
+            for (sys = 0; sys < num_systems; sys++) {
+                /* Calculate offset for the galaxy */
+                system_ptr = &dataCPU[sys * bodies_per_system];
+                /* Compute forces & integrate for the galaxy */
+                bodyForce(system_ptr, dt, bodies_per_system);
+                integrate(system_ptr, dt, bodies_per_system);
                 
-    //             // if(sys==0)
-    //             //     goto outCPU;
-    //         }
-    //     }
-    //     outCPU:
-    //     totalTimeCPU = GetTimer() / 1000.0;
+                // if(sys==0)
+                //     goto outCPU;
+            }
+        }
+        outCPU:
+        totalTimeCPU = GetTimer() / 1000.0;
 
-    //     /* Metrics calculation */
-    //     interactions_per_system = (double) bodies_per_system * bodies_per_system;
-    //     total_interactions = interactions_per_system * num_systems * nIters;
+        /* Metrics calculation */
+        interactions_per_system = (double) bodies_per_system * bodies_per_system;
+        total_interactions = interactions_per_system * num_systems * nIters;
 
-    //     printf(BLUE "Total CPU Time: %.3f seconds\n" RESET, totalTimeCPU);
-    //     printf("Average CPU Throughput: %0.3f Billion Interactions / second\n",
-    //         1e-9 * total_interactions / totalTimeCPU);
-    // }
-    // float err = calc_max_err(dataCPU, h_data, total_bodies);
-    // if (err < ACCURACY){
-    //     printf(GREEN "Final Error between CPU and GPU results: %f<%f\n" RESET "\n", err, ACCURACY);
-    //     printf(MAGENTA "SPEEDUP: %0.2fx\n" RESET, totalTimeCPU/totalTimeGPU);
-    // }
-    // else
-    //     printf(RED "Final Error between CPU and GPU results: %f>%f\n" RESET "\n", err, ACCURACY);
-    // free(dataCPU);
+        printf(BLUE "Total CPU Time: %.3f seconds\n" RESET, totalTimeCPU);
+        printf("Average CPU Throughput: %0.3f Billion Interactions / second\n",
+            1e-9 * total_interactions / totalTimeCPU);
+        float err = calc_max_err(dataCPU, h_data, total_bodies);
+        if (err < ACCURACY){
+            printf(GREEN "Final Error between CPU and GPU results: %f<%f\n" RESET "\n", err, ACCURACY);
+            printf(MAGENTA "SPEEDUP: %0.2fx\n" RESET, totalTimeCPU/totalTimeGPU);
+        }
+        else
+            printf(RED "Final Error between CPU and GPU results: %f>%f\n" RESET "\n", err, ACCURACY);
+        free(dataCPU);
+    }
     free(h_data);
+
     return 0;
 }

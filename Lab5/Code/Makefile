@@ -41,6 +41,7 @@ help:
 	@echo "make gpu       # build GPU only"
 	@echo "make run_cpu   # run clahe_cpu"
 	@echo "make run_gpu   # run clahe_gpu"
+	@echo "make run_gpuV   # run  clahe_gpu and validate against CPU"
 	@echo "make clean     # remove builds and binaries"
 
 ########################
@@ -75,6 +76,9 @@ run_cpu: $(CPU_TARGET)
 
 run_gpu: $(GPU_TARGET)
 	./$(GPU_TARGET) $(GALAXY_DATA_DIR)
+
+run_gpuV: $(GPU_TARGET) $(CPU_TARGET)
+	./$(GPU_TARGET) $(GALAXY_DATA_DIR) v
 
 ########################
 # Cleanup
