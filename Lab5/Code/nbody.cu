@@ -39,57 +39,224 @@ typedef struct {
 #define CUDA_BLOCK_SIZE 1024
 
 typedef struct {
-    float x,y,z;
+    float x[CUDA_BLOCK_SIZE];
+    float y[CUDA_BLOCK_SIZE];
+    float z[CUDA_BLOCK_SIZE];
 } Force;
 
-__global__ void bodyForceKernel(Body * p, float dt, int n) {
+// __inline__ __device__ float warpReduceSum(float v) {
+//     // Full warp mask (works for all recent GPUs)
+//     unsigned mask = 0xffffffffu;
+//     // Reduce within the warp: 16,8,4,2,1
+//     v += __shfl_down_sync(mask, v, 16);
+//     v += __shfl_down_sync(mask, v, 8);
+//     v += __shfl_down_sync(mask, v, 4);
+//     v += __shfl_down_sync(mask, v, 2);
+//     v += __shfl_down_sync(mask, v, 1);
+//     return v;
+// }
+// __inline__ __device__ void blockReduceSum3(float &fx, float &fy, float &fz) {
+//     // 1024 threads => 32 warps
+//     __shared__ float warp_fx[32];
+//     __shared__ float warp_fy[32];
+//     __shared__ float warp_fz[32];
+
+//     int lane   = threadIdx.x & 31;        // thread index within warp
+//     int warpId = threadIdx.x >> 5;        // warp index within block
+
+//     // 1) reduce within each warp (no syncthreads)
+//     fx = warpReduceSum(fx);
+//     fy = warpReduceSum(fy);
+//     fz = warpReduceSum(fz);
+
+//     // lane 0 writes warp partial to shared
+//     if (lane == 0) {
+//         warp_fx[warpId] = fx;
+//         warp_fy[warpId] = fy;
+//         warp_fz[warpId] = fz;
+//     }
+//     __syncthreads(); // only once
+
+//     // 2) first warp reduces the 32 warp partials
+//     if (warpId == 0) {
+//         float vfx = (lane < 32) ? warp_fx[lane] : 0.0f;
+//         float vfy = (lane < 32) ? warp_fy[lane] : 0.0f;
+//         float vfz = (lane < 32) ? warp_fz[lane] : 0.0f;
+
+//         vfx = warpReduceSum(vfx);
+//         vfy = warpReduceSum(vfy);
+//         vfz = warpReduceSum(vfz);
+
+//         // lane 0 now has the block sum; broadcast back to all threads in warp 0
+//         if (lane == 0) {
+//             warp_fx[0] = vfx;
+//             warp_fy[0] = vfy;
+//             warp_fz[0] = vfz;
+//         }
+//     }
+//     __syncthreads(); // optional if only thread0 uses result; required if everyone needs it
+
+//     // Put result in fx/fy/fz for all threads (or at least for thread 0)
+//     fx = warp_fx[0];
+//     fy = warp_fy[0];
+//     fz = warp_fz[0];
+// }
+
+
+// __global__ void bodyForceKernel_all_systems(Body * system, float dt, int n) {
+//     // splits the tile since we have at most 1024 threads per block
+//     int sys = blockIdx.z;
+//     Body * p = &system[sys * n];
+//     int inner_tile_id = blockIdx.y;
+//     int inside_tile_idx = threadIdx.x;
+//     int i = blockIdx.x;
+//     int j = inside_tile_idx + inner_tile_id * blockDim.x;
+//     // Initiating the Force accumulators
+//     __shared__ Force force_shared;
+//     // __shared__ float Fx[CUDA_BLOCK_SIZE];
+//     // __shared__ float Fy[CUDA_BLOCK_SIZE];
+//     // __shared__ float Fz[CUDA_BLOCK_SIZE];
+//     float dx, dy, dz, distSqr, invDist, invDist3;
+    
+//     Body bi = p[i];
+//     Body bj = p[j];
+//     dx = bj.x - bi.x;
+//     dy = bj.y - bi.y;
+//     dz = bj.z - bi.z;
+//     // this can be done with fused multiply add instructions
+//     distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+//     // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
+//     // inverse srt goes brrrrrrrr here
+//     // invDist = 1.0f / sqrtf(distSqr);
+//     invDist = rsqrtf(distSqr);
+//     invDist3 = invDist * invDist * invDist;
+//     // sum across the block fast
+//     // blockReduceSum3(fx, fy, fz);
+
+//     force_shared.x[inside_tile_idx] = dx * invDist3;
+//     force_shared.y[inside_tile_idx] = dy * invDist3;
+//     force_shared.z[inside_tile_idx] = dz * invDist3;
+//     __syncthreads();
+
+//     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
+//         if (inside_tile_idx < s) {
+//             force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
+//             force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
+//             force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
+//         }
+//         __syncthreads(); 
+//     }
+//     if(inside_tile_idx == 0){
+//         atomicAdd(&p[i].vx, dt * force_shared.x[0]);
+//         atomicAdd(&p[i].vy, dt * force_shared.y[0]);
+//         atomicAdd(&p[i].vz, dt * force_shared.z[0]);
+//     }
+// }
+
+__global__ void bodyForceKernel2(Body * p, float dt, int n) {
     // splits the tile since we have at most 1024 threads per block
-    int inner_tile_id = blockIdx.y;
     int inside_tile_idx = threadIdx.x;
     int i = blockIdx.x;
-    int j = inside_tile_idx + inner_tile_id * blockDim.x;
-    Body bi = p[i];
-    Body bj = p[j];
-    // Initiating the Force accumulators
-    __shared__ Force force_shared[CUDA_BLOCK_SIZE];
-    // __shared__ float Fx[CUDA_BLOCK_SIZE];
-    // __shared__ float Fy[CUDA_BLOCK_SIZE];
-    // __shared__ float Fz[CUDA_BLOCK_SIZE];
-    float dx, dy, dz, distSqr, invDist, invDist3;
 
-    dx = bj.x - bi.x;
-    dy = bj.y - bi.y;
-    dz = bj.z - bi.z;
-    // this can be done with fused multiply add instructions
-    distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
-    // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
-    // inverse srt goes brrrrrrrr here
-    // invDist = 1.0f / sqrtf(distSqr);
-    invDist = rsqrtf(distSqr);
-    invDist3 = invDist * invDist * invDist;
-    force_shared[inside_tile_idx].x = dx * invDist3;
-    force_shared[inside_tile_idx].y = dy * invDist3;
-    force_shared[inside_tile_idx].z = dz * invDist3;
+    float fx = 0.0f;
+    float fy = 0.0f;
+    float fz = 0.0f;
+    __shared__ Force force_shared;
+    Body bi = p[i];
+
+    // loop over 8 tiles
+    for(int tile = 0; tile < n/blockDim.x; tile++){
+        int j = inside_tile_idx + tile * blockDim.x;
+        Body bj = p[j];
+        // Initiating the Force accumulators
+        // __shared__ float Fx[CUDA_BLOCK_SIZE];
+        // __shared__ float Fy[CUDA_BLOCK_SIZE];
+        // __shared__ float Fz[CUDA_BLOCK_SIZE];
+        float dx, dy, dz, distSqr, invDist, invDist3;
+    
+        dx = bj.x - bi.x;
+        dy = bj.y - bi.y;
+        dz = bj.z - bi.z;
+        // this can be done with fused multiply add instructions
+        distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+        // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
+        // inverse srt goes brrrrrrrr here
+        // invDist = 1.0f / sqrtf(distSqr);
+        invDist = rsqrtf(distSqr);
+        invDist3 = invDist * invDist * invDist;
+        fx += dx * invDist3;
+        fy += dy * invDist3;
+        fz += dz * invDist3;
+    }
+    force_shared.x[inside_tile_idx] = fx;
+    force_shared.y[inside_tile_idx] = fy;
+    force_shared.z[inside_tile_idx] = fz;
     __syncthreads();
 
     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
         if (inside_tile_idx < s) {
-            force_shared[inside_tile_idx].x += force_shared[inside_tile_idx + s].x;
-            force_shared[inside_tile_idx].y += force_shared[inside_tile_idx + s].y;
-            force_shared[inside_tile_idx].z += force_shared[inside_tile_idx + s].z;
+            force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
+            force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
+            force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
         }
         __syncthreads(); 
     }
     if(inside_tile_idx == 0){
-        atomicAdd(&p[i].vx, dt * force_shared[0].x);
-    }
-    if(inside_tile_idx == 1){
-        atomicAdd(&p[i].vy, dt * force_shared[0].y);
-    }
-    if(inside_tile_idx == 2){
-        atomicAdd(&p[i].vz, dt * force_shared[0].z);
+        atomicAdd(&p[i].vx, dt * force_shared.x[0]);
+        atomicAdd(&p[i].vy, dt * force_shared.y[0]);
+        atomicAdd(&p[i].vz, dt * force_shared.z[0]);
     }
 }
+// __global__ void bodyForceKernel(Body * p, float dt, int n) {
+//     // splits the tile since we have at most 1024 threads per block
+//     int inner_tile_id = blockIdx.y;
+//     int inside_tile_idx = threadIdx.x;
+//     int i = blockIdx.x;
+//     int j = inside_tile_idx + inner_tile_id * blockDim.x;
+//     Body bi = p[i];
+//     Body bj = p[j];
+//     // Initiating the Force accumulators
+//     __shared__ Force force_shared[CUDA_BLOCK_SIZE];
+//     // __shared__ float Fx[CUDA_BLOCK_SIZE];
+//     // __shared__ float Fy[CUDA_BLOCK_SIZE];
+//     // __shared__ float Fz[CUDA_BLOCK_SIZE];
+//     float dx, dy, dz, distSqr, invDist, invDist3;
+
+//     dx = bj.x - bi.x;
+//     dy = bj.y - bi.y;
+//     dz = bj.z - bi.z;
+//     // this can be done with fused multiply add instructions
+//     distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+//     // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
+//     // inverse srt goes brrrrrrrr here
+//     // invDist = 1.0f / sqrtf(distSqr);
+//     invDist = rsqrtf(distSqr);
+//     invDist3 = invDist * invDist * invDist;
+//     force_shared[inside_tile_idx].x = dx * invDist3;
+//     force_shared[inside_tile_idx].y = dy * invDist3;
+//     force_shared[inside_tile_idx].z = dz * invDist3;
+//     __syncthreads();
+
+//     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
+//         if (inside_tile_idx < s) {
+//             force_shared[inside_tile_idx].x += force_shared[inside_tile_idx + s].x;
+//             force_shared[inside_tile_idx].y += force_shared[inside_tile_idx + s].y;
+//             force_shared[inside_tile_idx].z += force_shared[inside_tile_idx + s].z;
+//         }
+//         __syncthreads(); 
+//     }
+//     if(inside_tile_idx == 0){
+//         atomicAdd(&p[i].vx, dt * force_shared[0].x);
+//     }
+//     if(inside_tile_idx == 1){
+//         atomicAdd(&p[i].vy, dt * force_shared[0].y);
+//     }
+//     if(inside_tile_idx == 2){
+//         atomicAdd(&p[i].vz, dt * force_shared[0].z);
+//     }
+// }
+
+
 __global__ void integrateKernel(Body * p, float dt, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) {
@@ -226,7 +393,8 @@ int main(const int argc, const char *argv[]) {
         double tempTime = 0.0;
         double  bodyforceTime = 0.0f;
         double integrateTime = 0.0f;
-        dim3 Block(bodies_per_system, 8);
+        // dim3 Block(bodies_per_system, 8,32);
+        dim3 Block(bodies_per_system);
 
         cudaStream_t *streams = (cudaStream_t *) malloc(num_systems * sizeof(cudaStream_t));
         for (int i = 0; i < num_systems; i++) {
@@ -236,11 +404,11 @@ int main(const int argc, const char *argv[]) {
         /* Time-steps */
         for (iter = 1; iter <= nIters; iter++) {
             /* Galaxies */
+            // bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system);
             for (sys = 0; sys < num_systems; sys++) {
                 /* Calculate offset for the galaxy */
                 system_ptr = &dataGPU[sys * bodies_per_system];
-                // bodyForceKernel<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
-                bodyForceKernel<<<Block, CUDA_BLOCK_SIZE>>>(system_ptr, dt, bodies_per_system);
+                bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
             }
             cudaDeviceSynchronize();
             // This can be done after all systems.
