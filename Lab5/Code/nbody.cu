@@ -153,36 +153,37 @@ typedef struct {
 //     }
 // }
 
-__global__ void bodyForceKernel2(Body * p, float dt, int n) {
+__global__ void bodyForceKernel2(Body * system, float dt, int n) {
     // splits the tile since we have at most 1024 threads per block
+    int sys = blockIdx.z;
+    Body * p = &system[sys * n];
     int inside_tile_idx = threadIdx.x;
     int i = blockIdx.x;
-
     float fx = 0.0f;
     float fy = 0.0f;
     float fz = 0.0f;
     __shared__ Force force_shared;
     Body bi = p[i];
+    float dx, dy, dz, distSqr, invDist, invDist3;
 
     // loop over 8 tiles
-    for(int tile = 0; tile < n/blockDim.x; tile++){
+    // for(int tile = 0; tile < (n/blockDim.x)/blockDim.y; tile++){
+    for(int tile = 0; tile < (n/blockDim.x)/blockDim.y; tile++){
+    // {
+    //     int tile = blockIdx.y;
+        // if(blockIdx.y>0) return;
         int j = inside_tile_idx + tile * blockDim.x;
         Body bj = p[j];
-        // Initiating the Force accumulators
-        // __shared__ float Fx[CUDA_BLOCK_SIZE];
-        // __shared__ float Fy[CUDA_BLOCK_SIZE];
-        // __shared__ float Fz[CUDA_BLOCK_SIZE];
-        float dx, dy, dz, distSqr, invDist, invDist3;
-    
         dx = bj.x - bi.x;
         dy = bj.y - bi.y;
         dz = bj.z - bi.z;
         // this can be done with fused multiply add instructions
         distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
         // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
-        // inverse srt goes brrrrrrrr here
-        // invDist = 1.0f / sqrtf(distSqr);
+        // invDist = Q_rsqrt(distSqr);
         invDist = rsqrtf(distSqr);
+        // invDist = 1.0f / sqrtf(distSqr);
+
         invDist3 = invDist * invDist * invDist;
         fx += dx * invDist3;
         fy += dy * invDist3;
@@ -192,7 +193,6 @@ __global__ void bodyForceKernel2(Body * p, float dt, int n) {
     force_shared.y[inside_tile_idx] = fy;
     force_shared.z[inside_tile_idx] = fz;
     __syncthreads();
-
     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
         if (inside_tile_idx < s) {
             force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
@@ -202,9 +202,9 @@ __global__ void bodyForceKernel2(Body * p, float dt, int n) {
         __syncthreads(); 
     }
     if(inside_tile_idx == 0){
-        atomicAdd(&p[i].vx, dt * force_shared.x[0]);
-        atomicAdd(&p[i].vy, dt * force_shared.y[0]);
-        atomicAdd(&p[i].vz, dt * force_shared.z[0]);
+        p[i].vx += dt * force_shared.x[0];
+        p[i].vy += dt * force_shared.y[0];
+        p[i].vz += dt * force_shared.z[0];
     }
 }
 // __global__ void bodyForceKernel(Body * p, float dt, int n) {
@@ -394,7 +394,7 @@ int main(const int argc, const char *argv[]) {
         double  bodyforceTime = 0.0f;
         double integrateTime = 0.0f;
         // dim3 Block(bodies_per_system, 8,32);
-        dim3 Block(bodies_per_system);
+        dim3 Block(bodies_per_system,1,32);
 
         cudaStream_t *streams = (cudaStream_t *) malloc(num_systems * sizeof(cudaStream_t));
         for (int i = 0; i < num_systems; i++) {
@@ -404,13 +404,17 @@ int main(const int argc, const char *argv[]) {
         /* Time-steps */
         for (iter = 1; iter <= nIters; iter++) {
             /* Galaxies */
-            // bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system);
-            for (sys = 0; sys < num_systems; sys++) {
-                /* Calculate offset for the galaxy */
-                system_ptr = &dataGPU[sys * bodies_per_system];
-                bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
-            }
+            tempTime = GetTimer();
+            bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system);
+            // for (sys = 0; sys < num_systems; sys++) {
+            //     /* Calculate offset for the galaxy */
+            //     system_ptr = &dataGPU[sys * bodies_per_system];
+            //     bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
+            // }
             cudaDeviceSynchronize();
+            CUDA_CHECK(cudaGetLastError());
+            bodyforceTime += GetTimer() - tempTime;
+            tempTime = GetTimer();
             // This can be done after all systems.
             for (sys = 0; sys < num_systems; sys++) {
                 system_ptr = &dataGPU[sys * bodies_per_system];
@@ -418,6 +422,8 @@ int main(const int argc, const char *argv[]) {
                 // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
             }
             cudaDeviceSynchronize();
+            CUDA_CHECK(cudaGetLastError());
+            integrateTime += GetTimer() - tempTime;
         }
         outGPU:
 
@@ -425,6 +431,8 @@ int main(const int argc, const char *argv[]) {
         /* Metrics calculation */
         interactions_per_system = (double) bodies_per_system * bodies_per_system;
         total_interactions = interactions_per_system * num_systems * nIters;
+        printf(BLUE"Body Force GPU Time: %.3f seconds\n" RESET, bodyforceTime/1000.0);
+        printf(BLUE"Integrate GPU Time: %.3f seconds\n" RESET, integrateTime/1000.0);
         printf(CYAN"Total GPU Time: %.3f seconds\n" RESET, totalTimeGPU);
         printf("Average  GPU Throughput: %0.3f Billion Interactions / second\n\n\n",
             1e-9 * total_interactions / totalTimeGPU);
