@@ -239,13 +239,17 @@ int main(const int argc, const char *argv[]) {
             for (sys = 0; sys < num_systems; sys++) {
                 /* Calculate offset for the galaxy */
                 system_ptr = &dataGPU[sys * bodies_per_system];
-                // bodyForceKernel<<<Block, CUDA_BLOCK_SIZE,0,steams[sys]>>>(system_ptr, dt, bodies_per_system);
+                // bodyForceKernel<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
                 bodyForceKernel<<<Block, CUDA_BLOCK_SIZE>>>(system_ptr, dt, bodies_per_system);
-                cudaDeviceSynchronize();
-                // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,steams[sys]>>>(system_ptr, dt, bodies_per_system);
-                integrateKernel<<<8, CUDA_BLOCK_SIZE>>>(system_ptr, dt, bodies_per_system);
-                cudaDeviceSynchronize();
             }
+            cudaDeviceSynchronize();
+            // This can be done after all systems.
+            for (sys = 0; sys < num_systems; sys++) {
+                system_ptr = &dataGPU[sys * bodies_per_system];
+                integrateKernel<<<8, CUDA_BLOCK_SIZE>>>(system_ptr, dt, bodies_per_system);
+                // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
+            }
+            cudaDeviceSynchronize();
         }
         outGPU:
 
