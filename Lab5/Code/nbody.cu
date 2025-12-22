@@ -48,7 +48,8 @@ __global__ void bodyForceKernel(Body * p, float dt, int n) {
     int inside_tile_idx = threadIdx.x;
     int i = blockIdx.x;
     int j = inside_tile_idx + inner_tile_id * blockDim.x;
-
+    Body bi = p[i];
+    Body bj = p[j];
     // Initiating the Force accumulators
     __shared__ Force force_shared[CUDA_BLOCK_SIZE];
     // __shared__ float Fx[CUDA_BLOCK_SIZE];
@@ -56,22 +57,21 @@ __global__ void bodyForceKernel(Body * p, float dt, int n) {
     // __shared__ float Fz[CUDA_BLOCK_SIZE];
     float dx, dy, dz, distSqr, invDist, invDist3;
 
-    dx = p[j].x - p[i].x;
-    dy = p[j].y - p[i].y;
-    dz = p[j].z - p[i].z;
+    dx = bj.x - bi.x;
+    dy = bj.y - bi.y;
+    dz = bj.z - bi.z;
     // this can be done with fused multiply add instructions
     distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
     // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
     // inverse srt goes brrrrrrrr here
     // invDist = 1.0f / sqrtf(distSqr);
-    invDist = rsqrtf(distSqr);;
+    invDist = rsqrtf(distSqr);
     invDist3 = invDist * invDist * invDist;
     force_shared[inside_tile_idx].x = dx * invDist3;
     force_shared[inside_tile_idx].y = dy * invDist3;
     force_shared[inside_tile_idx].z = dz * invDist3;
     __syncthreads();
 
-    // add the stuff inside each subtile
     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
         if (inside_tile_idx < s) {
             force_shared[inside_tile_idx].x += force_shared[inside_tile_idx + s].x;
@@ -89,7 +89,6 @@ __global__ void bodyForceKernel(Body * p, float dt, int n) {
     if(inside_tile_idx == 2){
         atomicAdd(&p[i].vz, dt * force_shared[0].z);
     }
-
 }
 __global__ void integrateKernel(Body * p, float dt, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -265,62 +264,81 @@ int main(const int argc, const char *argv[]) {
     if(validate)
     // CPU computation for validation
     {
-        /* Attempt to load dataset */
-        fp = fopen("galaxy_data.bin", "rb");
-        if (fp) {
-            fread(&num_systems, sizeof(int), 1, fp);
-            fread(&bodies_per_system, sizeof(int), 1, fp);
-            printf("Found dataset: %d systems of %d bodies.\n", num_systems,
-                    bodies_per_system);
-        } else {
-            printf("No dataset found. Using random initialization.\n");
-        }
-
-        /* Allocate memory for ALL systems */
         total_bodies = num_systems * bodies_per_system;
         bytes = total_bodies * sizeof(Body);
         dataCPU = (Body *) malloc(bytes);
-
-        /* Initialize dataCPU */
-        if (fp) {
-            fread(dataCPU, sizeof(Body), total_bodies, fp);
-            fclose(fp);
-        } else {
-        /* Random initialization if file missing */
-            buf = (float *) dataCPU;
-            for (int i = 0; i < 6 * total_bodies; i++) {
-                buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
+        FILE *correct_dump = fopen("correct_dump", "rb");
+        if(!correct_dump){
+             /* Attempt to load dataset */
+            fp = fopen("galaxy_data.bin", "rb");
+            if (fp) {
+                fread(&num_systems, sizeof(int), 1, fp);
+                fread(&bodies_per_system, sizeof(int), 1, fp);
+                printf("Found dataset: %d systems of %d bodies.\n", num_systems,
+                        bodies_per_system);
+            } else {
+                printf("No dataset found. Using random initialization.\n");
             }
-        }
+    
+            /* Allocate memory for ALL systems */
 
-        printf("Running parallel CPU simulation for %d systems...\n",
-            num_systems);
-
-        totalTimeCPU = 0.0;
-
-        StartTimer();
-
-        /* Time-steps */
-        for (iter = 1; iter <= nIters; iter++) {
-            /* Galaxies */
-            for (sys = 0; sys < num_systems; sys++) {
-                /* Calculate offset for the galaxy */
-                system_ptr = &dataCPU[sys * bodies_per_system];
-                /* Compute forces & integrate for the galaxy */
-                bodyForce(system_ptr, dt, bodies_per_system);
-                integrate(system_ptr, dt, bodies_per_system);
-                
-                // if(sys==0)
-                //     goto outCPU;
+    
+            /* Initialize dataCPU */
+            if (fp) {
+                fread(dataCPU, sizeof(Body), total_bodies, fp);
+                fclose(fp);
+            } else {
+            /* Random initialization if file missing */
+                buf = (float *) dataCPU;
+                for (int i = 0; i < 6 * total_bodies; i++) {
+                    buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
+                }
             }
+    
+            printf("Running parallel CPU simulation for %d systems...\n",
+                num_systems);
+    
+            totalTimeCPU = 0.0;
+    
+            StartTimer();
+    
+            /* Time-steps */
+            for (iter = 1; iter <= nIters; iter++) {
+                /* Galaxies */
+                for (sys = 0; sys < num_systems; sys++) {
+                    /* Calculate offset for the galaxy */
+                    system_ptr = &dataCPU[sys * bodies_per_system];
+                    /* Compute forces & integrate for the galaxy */
+                    bodyForce(system_ptr, dt, bodies_per_system);
+                    integrate(system_ptr, dt, bodies_per_system);
+                    
+                    // if(sys==0)
+                    //     goto outCPU;
+                }
+            }
+            outCPU:
+            totalTimeCPU = GetTimer() / 1000.0;
+    
+            /* Metrics calculation */
+            interactions_per_system = (double) bodies_per_system * bodies_per_system;
+            total_interactions = interactions_per_system * num_systems * nIters;
+            correct_dump = fopen("correct_dump", "wb");
+            fwrite(&totalTimeCPU, sizeof(double), 1, correct_dump);
+            for(int i=0;i<total_bodies;i++){
+                fwrite(&dataCPU[i], sizeof(Body), 1, correct_dump);
+            }
+            fclose(correct_dump);
         }
-        outCPU:
-        totalTimeCPU = GetTimer() / 1000.0;
+        else{
 
-        /* Metrics calculation */
-        interactions_per_system = (double) bodies_per_system * bodies_per_system;
-        total_interactions = interactions_per_system * num_systems * nIters;
-
+            fseek(correct_dump, 0, SEEK_END);
+            long file_size = ftell(correct_dump);
+            fseek(correct_dump, 0, SEEK_SET);
+            printf("File size: %ld KB\n", file_size / 1024);
+            fread(&totalTimeCPU, sizeof(double), 1, correct_dump);
+            fread(dataCPU, sizeof(Body), total_bodies, correct_dump);
+            fclose(correct_dump);
+        }
         printf(BLUE "Total CPU Time: %.3f seconds\n" RESET, totalTimeCPU);
         printf("Average CPU Throughput: %0.3f Billion Interactions / second\n",
             1e-9 * total_interactions / totalTimeCPU);

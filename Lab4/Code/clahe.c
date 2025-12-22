@@ -31,15 +31,18 @@ PGM_IMG read_pgm(const char * path){
     return result;
 }
 
+extern double get_time_sec();
 // Helper: Write PGM
 void write_pgm(PGM_IMG img, const char * path){
     FILE * out_file;
-    
+    double start = get_time_sec();
     out_file = fopen(path, "wb");
     fprintf(out_file, "P5\n");
     fprintf(out_file, "%d %d\n255\n", img.w, img.h);
     fwrite(img.img, sizeof(unsigned char), img.w*img.h, out_file);
     fclose(out_file);
+    double end = get_time_sec();
+    printf("Wrote output image to %s in %f seconds\n", path, end - start);
 }
 
 // Helper: Free PGM Memory
