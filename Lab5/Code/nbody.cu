@@ -30,6 +30,9 @@
 typedef struct {
     float x, y, z, vx, vy, vz;
 } Body;
+typedef struct {
+    float *x, *y, *z, *vx, *vy, *vz;
+} Body_SoA;
 
 /* Update a single galaxy. Parameters:
     - array of bodies
@@ -44,136 +47,39 @@ typedef struct {
     float z[CUDA_BLOCK_SIZE];
 } Force;
 
-// __inline__ __device__ float warpReduceSum(float v) {
-//     // Full warp mask (works for all recent GPUs)
-//     unsigned mask = 0xffffffffu;
-//     // Reduce within the warp: 16,8,4,2,1
-//     v += __shfl_down_sync(mask, v, 16);
-//     v += __shfl_down_sync(mask, v, 8);
-//     v += __shfl_down_sync(mask, v, 4);
-//     v += __shfl_down_sync(mask, v, 2);
-//     v += __shfl_down_sync(mask, v, 1);
-//     return v;
-// }
-// __inline__ __device__ void blockReduceSum3(float &fx, float &fy, float &fz) {
-//     // 1024 threads => 32 warps
-//     __shared__ float warp_fx[32];
-//     __shared__ float warp_fy[32];
-//     __shared__ float warp_fz[32];
-
-//     int lane   = threadIdx.x & 31;        // thread index within warp
-//     int warpId = threadIdx.x >> 5;        // warp index within block
-
-//     // 1) reduce within each warp (no syncthreads)
-//     fx = warpReduceSum(fx);
-//     fy = warpReduceSum(fy);
-//     fz = warpReduceSum(fz);
-
-//     // lane 0 writes warp partial to shared
-//     if (lane == 0) {
-//         warp_fx[warpId] = fx;
-//         warp_fy[warpId] = fy;
-//         warp_fz[warpId] = fz;
-//     }
-//     __syncthreads(); // only once
-
-//     // 2) first warp reduces the 32 warp partials
-//     if (warpId == 0) {
-//         float vfx = (lane < 32) ? warp_fx[lane] : 0.0f;
-//         float vfy = (lane < 32) ? warp_fy[lane] : 0.0f;
-//         float vfz = (lane < 32) ? warp_fz[lane] : 0.0f;
-
-//         vfx = warpReduceSum(vfx);
-//         vfy = warpReduceSum(vfy);
-//         vfz = warpReduceSum(vfz);
-
-//         // lane 0 now has the block sum; broadcast back to all threads in warp 0
-//         if (lane == 0) {
-//             warp_fx[0] = vfx;
-//             warp_fy[0] = vfy;
-//             warp_fz[0] = vfz;
-//         }
-//     }
-//     __syncthreads(); // optional if only thread0 uses result; required if everyone needs it
-
-//     // Put result in fx/fy/fz for all threads (or at least for thread 0)
-//     fx = warp_fx[0];
-//     fy = warp_fy[0];
-//     fz = warp_fz[0];
-// }
-
-
-// __global__ void bodyForceKernel_all_systems(Body * system, float dt, int n) {
-//     // splits the tile since we have at most 1024 threads per block
-//     int sys = blockIdx.z;
-//     Body * p = &system[sys * n];
-//     int inner_tile_id = blockIdx.y;
-//     int inside_tile_idx = threadIdx.x;
-//     int i = blockIdx.x;
-//     int j = inside_tile_idx + inner_tile_id * blockDim.x;
-//     // Initiating the Force accumulators
-//     __shared__ Force force_shared;
-//     // __shared__ float Fx[CUDA_BLOCK_SIZE];
-//     // __shared__ float Fy[CUDA_BLOCK_SIZE];
-//     // __shared__ float Fz[CUDA_BLOCK_SIZE];
-//     float dx, dy, dz, distSqr, invDist, invDist3;
-    
-//     Body bi = p[i];
-//     Body bj = p[j];
-//     dx = bj.x - bi.x;
-//     dy = bj.y - bi.y;
-//     dz = bj.z - bi.z;
-//     // this can be done with fused multiply add instructions
-//     distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
-//     // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
-//     // inverse srt goes brrrrrrrr here
-//     // invDist = 1.0f / sqrtf(distSqr);
-//     invDist = rsqrtf(distSqr);
-//     invDist3 = invDist * invDist * invDist;
-//     // sum across the block fast
-//     // blockReduceSum3(fx, fy, fz);
-
-//     force_shared.x[inside_tile_idx] = dx * invDist3;
-//     force_shared.y[inside_tile_idx] = dy * invDist3;
-//     force_shared.z[inside_tile_idx] = dz * invDist3;
-//     __syncthreads();
-
-//     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
-//         if (inside_tile_idx < s) {
-//             force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
-//             force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
-//             force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
-//         }
-//         __syncthreads(); 
-//     }
-//     if(inside_tile_idx == 0){
-//         atomicAdd(&p[i].vx, dt * force_shared.x[0]);
-//         atomicAdd(&p[i].vy, dt * force_shared.y[0]);
-//         atomicAdd(&p[i].vz, dt * force_shared.z[0]);
-//     }
-// }
-
-__global__ void bodyForceKernel2(Body * system, float dt, int n) {
+__global__ void bodyForceKernel2(Body_SoA system, float dt, int n) {
     // splits the tile since we have at most 1024 threads per block
     int sys = blockIdx.z;
-    Body * p = &system[sys * n];
+    int pointer_index= sys * n;
     int inside_tile_idx = threadIdx.x;
     int i = blockIdx.x;
     float fx = 0.0f;
     float fy = 0.0f;
     float fz = 0.0f;
     __shared__ Force force_shared;
-    Body bi = p[i];
+    Body bi;
+    bi.x = system.x[pointer_index + i];
+    bi.y = system.y[pointer_index + i];
+    bi.z = system.z[pointer_index + i];
+    bi.vx = system.vx[pointer_index + i];
+    bi.vy = system.vy[pointer_index + i];
+    bi.vz = system.vz[pointer_index + i];
     float dx, dy, dz, distSqr, invDist, invDist3;
 
     // loop over 8 tiles
     // for(int tile = 0; tile < (n/blockDim.x)/blockDim.y; tile++){
     for(int tile = 0; tile < (n/blockDim.x)/blockDim.y; tile++){
     // {
-    //     int tile = blockIdx.y;
+        // int tile = blockIdx.y;
         // if(blockIdx.y>0) return;
         int j = inside_tile_idx + tile * blockDim.x;
-        Body bj = p[j];
+        Body bj;
+        bj.x = system.x[pointer_index + j];
+        bj.y = system.y[pointer_index + j];
+        bj.z = system.z[pointer_index + j];
+        bj.vx = system.vx[pointer_index + j];
+        bj.vy = system.vy[pointer_index + j];
+        bj.vz = system.vz[pointer_index + j];
         dx = bj.x - bi.x;
         dy = bj.y - bi.y;
         dz = bj.z - bi.z;
@@ -202,9 +108,9 @@ __global__ void bodyForceKernel2(Body * system, float dt, int n) {
         __syncthreads(); 
     }
     if(inside_tile_idx == 0){
-        p[i].vx += dt * force_shared.x[0];
-        p[i].vy += dt * force_shared.y[0];
-        p[i].vz += dt * force_shared.z[0];
+        system.vx[pointer_index + i] += dt * force_shared.x[0];
+        system.vy[pointer_index + i] += dt * force_shared.y[0];
+        system.vz[pointer_index + i] += dt * force_shared.z[0];
     }
 }
 // __global__ void bodyForceKernel(Body * p, float dt, int n) {
@@ -257,6 +163,15 @@ __global__ void bodyForceKernel2(Body * system, float dt, int n) {
 // }
 
 
+__global__ void integrateKernel_SoA(Body_SoA p, float dt, int n, int sys) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int pointer_index= sys * n;
+    if (i < n) {
+        p.x[pointer_index + i] += p.vx[pointer_index + i] * dt;
+        p.y[pointer_index + i] += p.vy[pointer_index + i] * dt;
+        p.z[pointer_index + i] += p.vz[pointer_index + i] * dt;
+    }
+}
 __global__ void integrateKernel(Body * p, float dt, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) {
@@ -298,7 +213,7 @@ void bodyForce(Body * p, float dt, int n) {
     - time step
     - number of bodies
 */
-            
+
 void integrate(Body * p, float dt, int n) {
     int i;
     #pragma omp parallel for private(i)
@@ -348,8 +263,9 @@ int main(const int argc, const char *argv[]) {
 
     const float dt = 0.01f;
     FILE *fp;
-    int total_bodies, bytes, sys, iter;
-    Body *dataGPU, *dataCPU, *h_data, *system_ptr;
+    int total_bodies, bytes, bytes_padded, sys, iter;
+    Body  *dataCPU, *h_data, *system_ptr;
+    Body_SoA dataCPU_padded, dataGPU;
     float *buf;
     double totalTimeGPU, totalTimeCPU, interactions_per_system, total_interactions;
     {
@@ -368,8 +284,22 @@ int main(const int argc, const char *argv[]) {
         total_bodies = num_systems * bodies_per_system;
         bytes = total_bodies * sizeof(Body);
         dataCPU = (Body *) malloc(bytes);
-        CUDA_CHECK(cudaMalloc((void **) &dataGPU, bytes));
         h_data = (Body *) malloc(bytes);
+
+        dataCPU_padded.x = (float *) malloc(total_bodies * sizeof(float));
+        dataCPU_padded.y = (float *) malloc(total_bodies * sizeof(float));
+        dataCPU_padded.z = (float *) malloc(total_bodies * sizeof(float));
+        dataCPU_padded.vx = (float *) malloc(total_bodies * sizeof(float));
+        dataCPU_padded.vy = (float *) malloc(total_bodies * sizeof(float));
+        dataCPU_padded.vz = (float *) malloc(total_bodies * sizeof(float));
+
+        cudaMalloc((void **)&dataGPU.x, total_bodies * sizeof(float));
+        cudaMalloc((void **)&dataGPU.y, total_bodies * sizeof(float));
+        cudaMalloc((void **)&dataGPU.z, total_bodies * sizeof(float));
+        cudaMalloc((void **)&dataGPU.vx, total_bodies * sizeof(float));
+        cudaMalloc((void **)&dataGPU.vy, total_bodies * sizeof(float));
+        cudaMalloc((void **)&dataGPU.vz, total_bodies * sizeof(float));
+        
 
         /* Initialize dataGPU */
         if (fp) {
@@ -382,8 +312,31 @@ int main(const int argc, const char *argv[]) {
                 buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
             }
         }
-        CUDA_CHECK(cudaMemcpy(dataGPU, dataCPU, bytes,
-                    cudaMemcpyHostToDevice));
+        // Padding data for coalesced accesses
+        for(int i=0; i<total_bodies; i++){
+            dataCPU_padded.x[i] = dataCPU[i].x;
+            dataCPU_padded.y[i] = dataCPU[i].y;
+            dataCPU_padded.z[i] = dataCPU[i].z;
+            dataCPU_padded.vx[i] = dataCPU[i].vx;
+            dataCPU_padded.vy[i] = dataCPU[i].vy;
+            dataCPU_padded.vz[i] = dataCPU[i].vz;
+        }
+
+        cudaMemcpy(dataGPU.x, dataCPU_padded.x, total_bodies * sizeof(float),
+                    cudaMemcpyHostToDevice);
+        cudaMemcpy(dataGPU.y, dataCPU_padded.y, total_bodies * sizeof(float),
+                    cudaMemcpyHostToDevice);
+        cudaMemcpy(dataGPU.z, dataCPU_padded.z, total_bodies * sizeof(float),
+                    cudaMemcpyHostToDevice);
+        cudaMemcpy(dataGPU.vx, dataCPU_padded.vx, total_bodies * sizeof(float),
+                    cudaMemcpyHostToDevice);
+        cudaMemcpy(dataGPU.vy, dataCPU_padded.vy, total_bodies * sizeof(float),
+                    cudaMemcpyHostToDevice);
+        cudaMemcpy(dataGPU.vz, dataCPU_padded.vz, total_bodies * sizeof(float),
+                    cudaMemcpyHostToDevice);
+
+        // CUDA_CHECK(cudaMemcpy(&dataGPU, &dataCPU_padded, bytes_padded,
+        //             cudaMemcpyHostToDevice));
 
         printf("Running GPU simulation for %d systems...\n",
             num_systems);
@@ -417,8 +370,8 @@ int main(const int argc, const char *argv[]) {
             tempTime = GetTimer();
             // This can be done after all systems.
             for (sys = 0; sys < num_systems; sys++) {
-                system_ptr = &dataGPU[sys * bodies_per_system];
-                integrateKernel<<<8, CUDA_BLOCK_SIZE>>>(system_ptr, dt, bodies_per_system);
+                // system_ptr = &dataGPU[sys * bodies_per_system];
+                integrateKernel_SoA<<<8, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system,sys);
                 // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
             }
             cudaDeviceSynchronize();
@@ -436,10 +389,31 @@ int main(const int argc, const char *argv[]) {
         printf(CYAN"Total GPU Time: %.3f seconds\n" RESET, totalTimeGPU);
         printf("Average  GPU Throughput: %0.3f Billion Interactions / second\n\n\n",
             1e-9 * total_interactions / totalTimeGPU);
-        CUDA_CHECK(cudaMemcpy(h_data, dataGPU, bytes,
-                    cudaMemcpyDeviceToHost));
+        // Copy back GPU data
+        cudaMemcpy(dataCPU_padded.x, dataGPU.x, total_bodies * sizeof(float),
+                    cudaMemcpyDeviceToHost);
+        cudaMemcpy(dataCPU_padded.y, dataGPU.y, total_bodies * sizeof(float),
+                    cudaMemcpyDeviceToHost);
+        cudaMemcpy(dataCPU_padded.z, dataGPU.z, total_bodies * sizeof(float),
+                    cudaMemcpyDeviceToHost);
+        cudaMemcpy(dataCPU_padded.vx, dataGPU.vx, total_bodies * sizeof(float),
+                    cudaMemcpyDeviceToHost);
+        cudaMemcpy(dataCPU_padded.vy, dataGPU.vy, total_bodies * sizeof(float),
+                    cudaMemcpyDeviceToHost);
+        cudaMemcpy(dataCPU_padded.vz, dataGPU.vz, total_bodies * sizeof(float),
+                    cudaMemcpyDeviceToHost);
+        for(int i=0; i<total_bodies; i++){
+            h_data[i].x = dataCPU_padded.x[i];
+            h_data[i].y = dataCPU_padded.y[i];
+            h_data[i].z = dataCPU_padded.z[i];
+            h_data[i].vx = dataCPU_padded.vx[i];    
+            h_data[i].vy = dataCPU_padded.vy[i];
+            h_data[i].vz = dataCPU_padded.vz[i];
+        }
+        // CUDA_CHECK(cudaMemcpy(h_data, dataGPU, bytes,
+        //             cudaMemcpyDeviceToHost));
         free(dataCPU);
-        cudaFree(dataGPU);
+        cudaFree(&dataGPU);
     }
     if(validate)
     // CPU computation for validation
