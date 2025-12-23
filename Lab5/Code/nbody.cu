@@ -39,13 +39,20 @@ typedef struct {
     - time step
     - number of bodies
 */
-#define CUDA_BLOCK_SIZE 1024
+#define CUDA_BLOCK_SIZE 128
 
 typedef struct {
     float x[CUDA_BLOCK_SIZE];
     float y[CUDA_BLOCK_SIZE];
     float z[CUDA_BLOCK_SIZE];
 } Force;
+
+
+__inline__ __device__ float warpReduceSum(float v) {
+    for (int offset = 16; offset > 0; offset >>= 1)
+        v += __shfl_down_sync(0xffffffff, v, offset);
+    return v;
+}
 
 __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     // splits the tile since we have at most 1024 threads per block
@@ -56,55 +63,86 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     float fx = 0.0f;
     float fy = 0.0f;
     float fz = 0.0f;
-    __shared__ Force force_shared;
-    Body bi;
-    bi.x = system.x[pointer_index + i];
-    bi.y = system.y[pointer_index + i];
-    bi.z = system.z[pointer_index + i];
+    int tiles = (n + blockDim.x - 1) / blockDim.x;
+    // if(threadIdx.x + blockIdx.x + blockIdx.z ==0){
+    //     printf("Processing a total of %d bodies in system %d on device %d. Total tiles = %d\n", n, sys, device, tiles);
+    // }
+    // __shared__ float shPosX[CUDA_BLOCK_SIZE];
+    // __shared__ float shPosY[CUDA_BLOCK_SIZE];
+    // __shared__ float shPosZ[CUDA_BLOCK_SIZE];
+    // for(int tile=0; tile<tiles; tile++){
+    //     // Loading everything into shared memory
+    //     shPosX[inside_tile_idx+(tile * blockDim.x)] = system.x[pointer_index + inside_tile_idx+(tile * blockDim.x)];
+    //     shPosY[inside_tile_idx+(tile * blockDim.x)] = system.y[pointer_index + inside_tile_idx+(tile * blockDim.x)];
+    //     // shPosZ[inside_tile_idx] = system.z[pointer_index + j];
+    // }
+    // __syncthreads();
     float dx, dy, dz, distSqr, invDist, invDist3;
+    
+
+    const float body_x = system.x[pointer_index + i];
+    const float body_y = system.y[pointer_index + i];
+    const float body_z = system.z[pointer_index + i];
+
 
     // loop over 8 tiles
-    // for(int tile = 0; tile < (n/blockDim.x)/blockDim.y; tile++){
-    for(int tile = 0; tile < (n/blockDim.x)/blockDim.y; tile++){
-    // {
+    for(int tile = 0; tile < tiles; tile++){
+        // {
+        // shPosX[inside_tile_idx+(tile * blockDim.x)] = system.x[pointer_index + inside_tile_idx+(tile * blockDim.x)];
+            
         // int tile = blockIdx.y;
-        // if(blockIdx.y>0) return;
         int j = inside_tile_idx + tile * blockDim.x;
-        Body bj;
-        bj.x = system.x[pointer_index + j];
-        bj.y = system.y[pointer_index + j];
-        bj.z = system.z[pointer_index + j];
-        dx = bj.x - bi.x;
-        dy = bj.y - bi.y;
-        dz = bj.z - bi.z;
+        dx = system.x[pointer_index + j] - body_x;
+        // dx = shPosX[j] - shPosX[i];
+        dy = system.y[pointer_index + j] - body_y;
+        // dy = shPosY[j] - shPosY[i];
+        dz = system.z[pointer_index + j] - body_z;
         // this can be done with fused multiply add instructions
         distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
         // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
-        // invDist = Q_rsqrt(distSqr);
+        
+        // inverse srt goes brrrrrrrr here
         invDist = rsqrtf(distSqr);
         // invDist = 1.0f / sqrtf(distSqr);
 
         invDist3 = invDist * invDist * invDist;
-        fx += dx * invDist3;
-        fy += dy * invDist3;
-        fz += dz * invDist3;
+        fx = fmaf(dx, invDist3, fx);
+        fy = fmaf(dy, invDist3, fy);
+        fz = fmaf(dz, invDist3, fz);
     }
-    force_shared.x[inside_tile_idx] = fx;
-    force_shared.y[inside_tile_idx] = fy;
-    force_shared.z[inside_tile_idx] = fz;
+
+    // warp reduce within each warp
+    fx = warpReduceSum(fx);
+    fy = warpReduceSum(fy);
+    fz = warpReduceSum(fz);
+    __shared__ float warpFx[32];
+    __shared__ float warpFy[32];
+    __shared__ float warpFz[32];
+
+    int lane   = threadIdx.x & 31;
+    int warpId = threadIdx.x >> 5;
+
+    if (lane == 0) {
+        warpFx[warpId] = fx;
+        warpFy[warpId] = fy;
+        warpFz[warpId] = fz;
+    }
     __syncthreads();
-    for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
-        if (inside_tile_idx < s) {
-            force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
-            force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
-            force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
+
+    if (warpId == 0) {
+        float bx = (threadIdx.x < (blockDim.x + 31) / 32) ? warpFx[lane] : 0.0f;
+        float by = (threadIdx.x < (blockDim.x + 31) / 32) ? warpFy[lane] : 0.0f;
+        float bz = (threadIdx.x < (blockDim.x + 31) / 32) ? warpFz[lane] : 0.0f;
+
+        bx = warpReduceSum(bx);
+        by = warpReduceSum(by);
+        bz = warpReduceSum(bz);
+
+        if (lane == 0) {
+            system.vx[pointer_index + i] += dt * bx;
+            system.vy[pointer_index + i] += dt * by;
+            system.vz[pointer_index + i] += dt * bz;
         }
-        __syncthreads(); 
-    }
-    if(inside_tile_idx == 0){
-        system.vx[pointer_index + i] += dt * force_shared.x[0];
-        system.vy[pointer_index + i] += dt * force_shared.y[0];
-        system.vz[pointer_index + i] += dt * force_shared.z[0];
     }
 }
 // __global__ void bodyForceKernel(Body * p, float dt, int n) {
@@ -365,7 +403,7 @@ int main(const int argc, const char *argv[]) {
         // dim3 Block(bodies_per_system, 8,32);
 
         dim3 Block(bodies_per_system,1,num_systems/ndev);
-        dim3 Block_Integrate(8,num_systems/ndev);
+        dim3 Block_Integrate(bodies_per_system/CUDA_BLOCK_SIZE,num_systems/ndev);
         
         cudaStream_t *streams = (cudaStream_t *) malloc(ndev * sizeof(cudaStream_t));
         for (int i = 0; i < ndev; i++) {
@@ -402,11 +440,6 @@ int main(const int argc, const char *argv[]) {
             // This can be done after all systems.
                 integrateKernel_SoA_all<<<Block_Integrate, CUDA_BLOCK_SIZE>>>(dataGPU[device], dt, bodies_per_system, device);
             }
-            // for (sys = 0; sys < num_systems; sys++) {
-            //     // system_ptr = &dataGPU[sys * bodies_per_system];
-            //     integrateKernel_SoA<<<8, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system,sys);
-            //     // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
-            // }
             for (int device = 0; device < ndev; device++) {
                 CUDA_CHECK(cudaSetDevice(device));
                 CUDA_CHECK(cudaStreamSynchronize(streams[device]));
