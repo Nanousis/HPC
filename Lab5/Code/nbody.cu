@@ -39,7 +39,7 @@ typedef struct {
     - time step
     - number of bodies
 */
-#define CUDA_BLOCK_SIZE 128
+#define CUDA_BLOCK_SIZE 256
 
 typedef struct {
     float x[CUDA_BLOCK_SIZE];
@@ -64,18 +64,39 @@ __global__ void bodyForceKernel_coarse(Body_SoA system, float dt, int n, int dev
     float fy = 0.0f;
     float fz = 0.0f;
     float dx, dy, dz, distSqr, invDist, invDist3;  
-    #pragma unroll 8
-    for(int j=0; j<n; j++){
-        dx = system.x[pointer_index + j] - system.x[pointer_index + body_id];
-        dy = system.y[pointer_index + j] - system.y[pointer_index + body_id];
-        dz = system.z[pointer_index + j] - system.z[pointer_index + body_id];
-        distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
-        invDist = rsqrtf(distSqr);
-        invDist3 = invDist * invDist * invDist;
-        fx = fmaf(dx, invDist3, fx);
-        fy = fmaf(dy, invDist3, fy);
-        fz = fmaf(dz, invDist3, fz);
+
+    float body_handled_x = system.x[pointer_index + body_id];
+    float body_handled_y = system.y[pointer_index + body_id];
+    float body_handled_z = system.z[pointer_index + body_id];
+
+    __shared__ float shared_body_x[CUDA_BLOCK_SIZE];
+    __shared__ float shared_body_y[CUDA_BLOCK_SIZE];
+    __shared__ float shared_body_z[CUDA_BLOCK_SIZE];
+    #pragma unroll 4
+    for(int tile = 0; tile < (n + CUDA_BLOCK_SIZE - 1) / CUDA_BLOCK_SIZE; tile++){
+        int index = tile * CUDA_BLOCK_SIZE + threadIdx.x;
+
+        shared_body_x[threadIdx.x] = system.x[pointer_index + index];
+        shared_body_y[threadIdx.x] = system.y[pointer_index + index];
+        shared_body_z[threadIdx.x] = system.z[pointer_index + index];
+
+        __syncthreads();
+        #pragma unroll 8
+        for(int j=0; j<CUDA_BLOCK_SIZE; j++){
+            if(tile * CUDA_BLOCK_SIZE + j >= n) break;
+            dx = shared_body_x[j] - body_handled_x;
+            dy = shared_body_y[j] - body_handled_y;
+            dz = shared_body_z[j] - body_handled_z;
+            distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+            invDist = rsqrtf(distSqr);
+            invDist3 = invDist * invDist * invDist;
+            fx = fmaf(dx, invDist3, fx);
+            fy = fmaf(dy, invDist3, fy);
+            fz = fmaf(dz, invDist3, fz);
+        }
+        __syncthreads();
     }
+
     system.vx[pointer_index + body_id] += dt * fx;
     system.vy[pointer_index + body_id] += dt * fy;
     system.vz[pointer_index + body_id] += dt * fz;

@@ -30,3 +30,50 @@ After this the code was WAYYYYYYYYY simpler....
 We tried unrolling. That pushed the performance even further going from 130B to 160Bi/s
 
 
+After that we revesited tiling. Doing CUDA_BLOCK_SIZE tiles every time. This increased the throughtput of the program by a lot. It sped up a further 3x going from 160Bi/s to 424Bi/s 
+We also tweaked the CUDA_BLOCK_SIZE to find the best time possible. This ended up being 256 threads per block.
+
+[01/12] Total=0.115000s  Throughput=372.950 BIPS
+[02/12] Total=0.101000s  Throughput=427.241 BIPS
+[03/12] Total=0.100000s  Throughput=427.398 BIPS
+[04/12] Total=0.101000s  Throughput=426.935 BIPS
+[05/12] Total=0.101000s  Throughput=425.843 BIPS
+[06/12] Total=0.102000s  Throughput=421.956 BIPS
+[07/12] Total=0.101000s  Throughput=424.765 BIPS
+[08/12] Total=0.101000s  Throughput=424.992 BIPS
+[09/12] Total=0.102000s  Throughput=422.214 BIPS
+[10/12] Total=0.102000s  Throughput=423.049 BIPS
+[11/12] Total=0.102000s  Throughput=422.924 BIPS
+[12/12] Total=0.102000s  Throughput=421.774 BIPS
+
+=== Trimmed results (discard lowest & highest throughput run) ===
+Discarded (lowest throughput): run #01 -> 372.950 BIPS, Total=0.115000s
+Discarded (highest throughput): run #03 -> 427.398 BIPS, Total=0.100000s
+
+Kept runs: 10 / 12
+
+Throughput (Billion Interactions / second):
+  mean = 424.169 BIPS
+  std  = 2.060 BIPS  (sample)
+
+Total GPU Time (seconds) on kept runs:
+  mean = 0.101500 s
+  std  = 0.000527 s  (sample)
+
+128 block size 
+Throughput (Billion Interactions / second):
+  mean = 421.841 BIPS
+  std  = 2.353 BIPS  (sample)
+
+Total GPU Time (seconds) on kept runs:
+  mean = 0.101800 s
+  std  = 0.000789 s  (sample)
+
+  512 block size
+  Throughput (Billion Interactions / second):
+  mean = 405.492 BIPS
+  std  = 13.489 BIPS  (sample)
+
+Total GPU Time (seconds) on kept runs:
+  mean = 0.106000 s
+  std  = 0.003801 s  (sample)
