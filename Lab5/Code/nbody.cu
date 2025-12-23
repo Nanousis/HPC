@@ -54,6 +54,34 @@ __inline__ __device__ float warpReduceSum(float v) {
     return v;
 }
 
+__global__ void bodyForceKernel_coarse(Body_SoA system, float dt, int n, int device) {
+    // splits the tile since we have at most 1024 threads per block
+    int sys = blockIdx.z + device * gridDim.z;
+    int pointer_index= sys * n;
+    int body_id = threadIdx.x + blockIdx.x * blockDim.x;
+    if (body_id >= n) return;
+    float fx = 0.0f;
+    float fy = 0.0f;
+    float fz = 0.0f;
+    float dx, dy, dz, distSqr, invDist, invDist3;  
+    #pragma unroll 8
+    for(int j=0; j<n; j++){
+        dx = system.x[pointer_index + j] - system.x[pointer_index + body_id];
+        dy = system.y[pointer_index + j] - system.y[pointer_index + body_id];
+        dz = system.z[pointer_index + j] - system.z[pointer_index + body_id];
+        distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+        invDist = rsqrtf(distSqr);
+        invDist3 = invDist * invDist * invDist;
+        fx = fmaf(dx, invDist3, fx);
+        fy = fmaf(dy, invDist3, fy);
+        fz = fmaf(dz, invDist3, fz);
+    }
+    system.vx[pointer_index + body_id] += dt * fx;
+    system.vy[pointer_index + body_id] += dt * fy;
+    system.vz[pointer_index + body_id] += dt * fz;
+}
+
+
 __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     // splits the tile since we have at most 1024 threads per block
     int sys = blockIdx.z + device * gridDim.z;
@@ -64,19 +92,6 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     float fy = 0.0f;
     float fz = 0.0f;
     int tiles = (n + blockDim.x - 1) / blockDim.x;
-    // if(threadIdx.x + blockIdx.x + blockIdx.z ==0){
-    //     printf("Processing a total of %d bodies in system %d on device %d. Total tiles = %d\n", n, sys, device, tiles);
-    // }
-    // __shared__ float shPosX[CUDA_BLOCK_SIZE];
-    // __shared__ float shPosY[CUDA_BLOCK_SIZE];
-    // __shared__ float shPosZ[CUDA_BLOCK_SIZE];
-    // for(int tile=0; tile<tiles; tile++){
-    //     // Loading everything into shared memory
-    //     shPosX[inside_tile_idx+(tile * blockDim.x)] = system.x[pointer_index + inside_tile_idx+(tile * blockDim.x)];
-    //     shPosY[inside_tile_idx+(tile * blockDim.x)] = system.y[pointer_index + inside_tile_idx+(tile * blockDim.x)];
-    //     // shPosZ[inside_tile_idx] = system.z[pointer_index + j];
-    // }
-    // __syncthreads();
     float dx, dy, dz, distSqr, invDist, invDist3;
     
 
@@ -88,8 +103,6 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     // loop over 8 tiles
     for(int tile = 0; tile < tiles; tile++){
         // {
-        // shPosX[inside_tile_idx+(tile * blockDim.x)] = system.x[pointer_index + inside_tile_idx+(tile * blockDim.x)];
-            
         // int tile = blockIdx.y;
         int j = inside_tile_idx + tile * blockDim.x;
         dx = system.x[pointer_index + j] - body_x;
@@ -145,56 +158,6 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
         }
     }
 }
-// __global__ void bodyForceKernel(Body * p, float dt, int n) {
-//     // splits the tile since we have at most 1024 threads per block
-//     int inner_tile_id = blockIdx.y;
-//     int inside_tile_idx = threadIdx.x;
-//     int i = blockIdx.x;
-//     int j = inside_tile_idx + inner_tile_id * blockDim.x;
-//     Body bi = p[i];
-//     Body bj = p[j];
-//     // Initiating the Force accumulators
-//     __shared__ Force force_shared[CUDA_BLOCK_SIZE];
-//     // __shared__ float Fx[CUDA_BLOCK_SIZE];
-//     // __shared__ float Fy[CUDA_BLOCK_SIZE];
-//     // __shared__ float Fz[CUDA_BLOCK_SIZE];
-//     float dx, dy, dz, distSqr, invDist, invDist3;
-
-//     dx = bj.x - bi.x;
-//     dy = bj.y - bi.y;
-//     dz = bj.z - bi.z;
-//     // this can be done with fused multiply add instructions
-//     distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
-//     // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
-//     // inverse srt goes brrrrrrrr here
-//     // invDist = 1.0f / sqrtf(distSqr);
-//     invDist = rsqrtf(distSqr);
-//     invDist3 = invDist * invDist * invDist;
-//     force_shared[inside_tile_idx].x = dx * invDist3;
-//     force_shared[inside_tile_idx].y = dy * invDist3;
-//     force_shared[inside_tile_idx].z = dz * invDist3;
-//     __syncthreads();
-
-//     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
-//         if (inside_tile_idx < s) {
-//             force_shared[inside_tile_idx].x += force_shared[inside_tile_idx + s].x;
-//             force_shared[inside_tile_idx].y += force_shared[inside_tile_idx + s].y;
-//             force_shared[inside_tile_idx].z += force_shared[inside_tile_idx + s].z;
-//         }
-//         __syncthreads(); 
-//     }
-//     if(inside_tile_idx == 0){
-//         atomicAdd(&p[i].vx, dt * force_shared[0].x);
-//     }
-//     if(inside_tile_idx == 1){
-//         atomicAdd(&p[i].vy, dt * force_shared[0].y);
-//     }
-//     if(inside_tile_idx == 2){
-//         atomicAdd(&p[i].vz, dt * force_shared[0].z);
-//     }
-// }
-
-
 __global__ void integrateKernel_SoA_all(Body_SoA p, float dt, int n, int device) {
     int sys = blockIdx.y + device * gridDim.y;
 
@@ -402,7 +365,7 @@ int main(const int argc, const char *argv[]) {
         double integrateTime = 0.0f;
         // dim3 Block(bodies_per_system, 8,32);
 
-        dim3 Block(bodies_per_system,1,num_systems/ndev);
+        dim3 Block(bodies_per_system/CUDA_BLOCK_SIZE,1,num_systems/ndev);
         dim3 Block_Integrate(bodies_per_system/CUDA_BLOCK_SIZE,num_systems/ndev);
         
         cudaStream_t *streams = (cudaStream_t *) malloc(ndev * sizeof(cudaStream_t));
@@ -418,7 +381,7 @@ int main(const int argc, const char *argv[]) {
             tempTime = GetTimer();
             for(int device=0; device<ndev; device++){
                 CUDA_CHECK(cudaSetDevice(device));
-                bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE, 0, streams[device]>>>(dataGPU[device], dt, bodies_per_system, device);
+                bodyForceKernel_coarse<<<Block, CUDA_BLOCK_SIZE, 0, streams[device]>>>(dataGPU[device], dt, bodies_per_system, device);
             }
             // bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system,0);
             // for (sys = 0; sys < num_systems; sys++) {
@@ -610,8 +573,9 @@ int main(const int argc, const char *argv[]) {
             printf(GREEN "Final Error between CPU and GPU results: %f<%f\n" RESET "\n", err, ACCURACY);
             printf(MAGENTA "SPEEDUP: %0.2fx\n" RESET, totalTimeCPU/totalTimeGPU);
         }
-        else
+        else{
             printf(RED "Final Error between CPU and GPU results: %f>%f\n" RESET "\n", err, ACCURACY);
+        }
         free(dataCPU);
     }
     free(h_data);

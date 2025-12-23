@@ -16,7 +16,7 @@ CPU_TARGET  := nbody_cpu
 # GPU (CUDA) configuration
 ########################
 GPU_NVCC     := nvcc
-GPU_CFLAGS   := -O4  -D_GNU_SOURCE -lineinfo
+GPU_CFLAGS   := -O4  -D_GNU_SOURCE -lineinfo --use_fast_math -ftz=true
 GPU_LDFLAGS  := 
 GPU_LDLIBS   := -Xcompiler -fopenmp -lm
 
