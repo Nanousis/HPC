@@ -47,9 +47,9 @@ typedef struct {
     float z[CUDA_BLOCK_SIZE];
 } Force;
 
-__global__ void bodyForceKernel2(Body_SoA system, float dt, int n) {
+__global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     // splits the tile since we have at most 1024 threads per block
-    int sys = blockIdx.z;
+    int sys = blockIdx.z + device * gridDim.z;
     int pointer_index= sys * n;
     int inside_tile_idx = threadIdx.x;
     int i = blockIdx.x;
@@ -61,9 +61,6 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n) {
     bi.x = system.x[pointer_index + i];
     bi.y = system.y[pointer_index + i];
     bi.z = system.z[pointer_index + i];
-    bi.vx = system.vx[pointer_index + i];
-    bi.vy = system.vy[pointer_index + i];
-    bi.vz = system.vz[pointer_index + i];
     float dx, dy, dz, distSqr, invDist, invDist3;
 
     // loop over 8 tiles
@@ -77,9 +74,6 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n) {
         bj.x = system.x[pointer_index + j];
         bj.y = system.y[pointer_index + j];
         bj.z = system.z[pointer_index + j];
-        bj.vx = system.vx[pointer_index + j];
-        bj.vy = system.vy[pointer_index + j];
-        bj.vz = system.vz[pointer_index + j];
         dx = bj.x - bi.x;
         dy = bj.y - bi.y;
         dz = bj.z - bi.z;
@@ -163,6 +157,17 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n) {
 // }
 
 
+__global__ void integrateKernel_SoA_all(Body_SoA p, float dt, int n, int device) {
+    int sys = blockIdx.y + device * gridDim.y;
+
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int pointer_index= sys * n ;
+    if (i < n) {
+        p.x[pointer_index + i] += p.vx[pointer_index + i] * dt;
+        p.y[pointer_index + i] += p.vy[pointer_index + i] * dt;
+        p.z[pointer_index + i] += p.vz[pointer_index + i] * dt;
+    }
+}
 __global__ void integrateKernel_SoA(Body_SoA p, float dt, int n, int sys) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int pointer_index= sys * n;
@@ -265,7 +270,8 @@ int main(const int argc, const char *argv[]) {
     FILE *fp;
     int total_bodies, bytes, bytes_padded, sys, iter;
     Body  *dataCPU, *h_data, *system_ptr;
-    Body_SoA dataCPU_padded, dataGPU;
+    Body_SoA dataCPU_padded;
+    Body_SoA *dataGPU;
     float *buf;
     double totalTimeGPU, totalTimeCPU, interactions_per_system, total_interactions;
     {
@@ -280,6 +286,10 @@ int main(const int argc, const char *argv[]) {
             printf("No dataset found. Using random initialization.\n");
         }
 
+        int ndev = 0;
+        cudaGetDeviceCount(&ndev);
+        printf("Number of GPUs detected: %d\n", ndev);
+
         /* Allocate memory for ALL systems */
         total_bodies = num_systems * bodies_per_system;
         bytes = total_bodies * sizeof(Body);
@@ -292,13 +302,18 @@ int main(const int argc, const char *argv[]) {
         dataCPU_padded.vx = (float *) malloc(total_bodies * sizeof(float));
         dataCPU_padded.vy = (float *) malloc(total_bodies * sizeof(float));
         dataCPU_padded.vz = (float *) malloc(total_bodies * sizeof(float));
+        dataGPU = (Body_SoA *) malloc(sizeof(Body_SoA)*ndev);
 
-        cudaMalloc((void **)&dataGPU.x, total_bodies * sizeof(float));
-        cudaMalloc((void **)&dataGPU.y, total_bodies * sizeof(float));
-        cudaMalloc((void **)&dataGPU.z, total_bodies * sizeof(float));
-        cudaMalloc((void **)&dataGPU.vx, total_bodies * sizeof(float));
-        cudaMalloc((void **)&dataGPU.vy, total_bodies * sizeof(float));
-        cudaMalloc((void **)&dataGPU.vz, total_bodies * sizeof(float));
+        for(int device=0; device<ndev; device++){
+            CUDA_CHECK(cudaSetDevice(device));
+            printf("Allocating data on GPU %d...\n", device);
+            CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].x, total_bodies * sizeof(float)));
+            CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].y, total_bodies * sizeof(float)));
+            CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].z, total_bodies * sizeof(float)));
+            CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].vx, total_bodies * sizeof(float)));
+            CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].vy, total_bodies * sizeof(float)));
+            CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].vz, total_bodies * sizeof(float)));
+        }
         
 
         /* Initialize dataGPU */
@@ -321,19 +336,21 @@ int main(const int argc, const char *argv[]) {
             dataCPU_padded.vy[i] = dataCPU[i].vy;
             dataCPU_padded.vz[i] = dataCPU[i].vz;
         }
-
-        cudaMemcpy(dataGPU.x, dataCPU_padded.x, total_bodies * sizeof(float),
-                    cudaMemcpyHostToDevice);
-        cudaMemcpy(dataGPU.y, dataCPU_padded.y, total_bodies * sizeof(float),
-                    cudaMemcpyHostToDevice);
-        cudaMemcpy(dataGPU.z, dataCPU_padded.z, total_bodies * sizeof(float),
-                    cudaMemcpyHostToDevice);
-        cudaMemcpy(dataGPU.vx, dataCPU_padded.vx, total_bodies * sizeof(float),
-                    cudaMemcpyHostToDevice);
-        cudaMemcpy(dataGPU.vy, dataCPU_padded.vy, total_bodies * sizeof(float),
-                    cudaMemcpyHostToDevice);
-        cudaMemcpy(dataGPU.vz, dataCPU_padded.vz, total_bodies * sizeof(float),
-                    cudaMemcpyHostToDevice);
+        for(int device=0; device<ndev; device++){
+            CUDA_CHECK(cudaSetDevice(device));
+            cudaMemcpy(dataGPU[device].x, dataCPU_padded.x, total_bodies * sizeof(float),
+                        cudaMemcpyHostToDevice);
+            cudaMemcpy(dataGPU[device].y, dataCPU_padded.y, total_bodies * sizeof(float),
+                        cudaMemcpyHostToDevice);
+            cudaMemcpy(dataGPU[device].z, dataCPU_padded.z, total_bodies * sizeof(float),
+                        cudaMemcpyHostToDevice);
+            cudaMemcpy(dataGPU[device].vx, dataCPU_padded.vx, total_bodies * sizeof(float),
+                        cudaMemcpyHostToDevice);
+            cudaMemcpy(dataGPU[device].vy, dataCPU_padded.vy, total_bodies * sizeof(float),
+                        cudaMemcpyHostToDevice);
+            cudaMemcpy(dataGPU[device].vz, dataCPU_padded.vz, total_bodies * sizeof(float),
+                        cudaMemcpyHostToDevice);
+        }
 
         // CUDA_CHECK(cudaMemcpy(&dataGPU, &dataCPU_padded, bytes_padded,
         //             cudaMemcpyHostToDevice));
@@ -342,40 +359,61 @@ int main(const int argc, const char *argv[]) {
             num_systems);
 
         totalTimeGPU = 0.0;
-        StartTimer();
         double tempTime = 0.0;
         double  bodyforceTime = 0.0f;
         double integrateTime = 0.0f;
         // dim3 Block(bodies_per_system, 8,32);
-        dim3 Block(bodies_per_system,1,32);
 
-        cudaStream_t *streams = (cudaStream_t *) malloc(num_systems * sizeof(cudaStream_t));
-        for (int i = 0; i < num_systems; i++) {
+        dim3 Block(bodies_per_system,1,num_systems/ndev);
+        dim3 Block_Integrate(8,num_systems/ndev);
+        
+        cudaStream_t *streams = (cudaStream_t *) malloc(ndev * sizeof(cudaStream_t));
+        for (int i = 0; i < ndev; i++) {
+            CUDA_CHECK(cudaSetDevice(i));
             CUDA_CHECK(cudaStreamCreate(&streams[i]));
         }
 
+        StartTimer();
         /* Time-steps */
         for (iter = 1; iter <= nIters; iter++) {
             /* Galaxies */
             tempTime = GetTimer();
-            bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system);
+            for(int device=0; device<ndev; device++){
+                CUDA_CHECK(cudaSetDevice(device));
+                bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE, 0, streams[device]>>>(dataGPU[device], dt, bodies_per_system, device);
+            }
+            // bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system,0);
             // for (sys = 0; sys < num_systems; sys++) {
-            //     /* Calculate offset for the galaxy */
-            //     system_ptr = &dataGPU[sys * bodies_per_system];
-            //     bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
-            // }
-            cudaDeviceSynchronize();
-            CUDA_CHECK(cudaGetLastError());
+                //     /* Calculate offset for the galaxy */
+                //     system_ptr = &dataGPU[sys * bodies_per_system];
+                //     bodyForceKernel2<<<Block, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
+                // }
+            for (int device = 0; device < ndev; device++) {
+                CUDA_CHECK(cudaSetDevice(device));
+                CUDA_CHECK(cudaStreamSynchronize(streams[device]));
+                CUDA_CHECK(cudaGetLastError());
+                CUDA_CHECK(cudaPeekAtLastError());
+            }
+
             bodyforceTime += GetTimer() - tempTime;
             tempTime = GetTimer();
+            for(int device=0; device<ndev; device++){
+                CUDA_CHECK(cudaSetDevice(device));
             // This can be done after all systems.
-            for (sys = 0; sys < num_systems; sys++) {
-                // system_ptr = &dataGPU[sys * bodies_per_system];
-                integrateKernel_SoA<<<8, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system,sys);
-                // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
+                integrateKernel_SoA_all<<<Block_Integrate, CUDA_BLOCK_SIZE>>>(dataGPU[device], dt, bodies_per_system, device);
             }
-            cudaDeviceSynchronize();
-            CUDA_CHECK(cudaGetLastError());
+            // for (sys = 0; sys < num_systems; sys++) {
+            //     // system_ptr = &dataGPU[sys * bodies_per_system];
+            //     integrateKernel_SoA<<<8, CUDA_BLOCK_SIZE>>>(dataGPU, dt, bodies_per_system,sys);
+            //     // integrateKernel<<<8, CUDA_BLOCK_SIZE,0,streams[sys]>>>(system_ptr, dt, bodies_per_system);
+            // }
+            for (int device = 0; device < ndev; device++) {
+                CUDA_CHECK(cudaSetDevice(device));
+                CUDA_CHECK(cudaStreamSynchronize(streams[device]));
+                CUDA_CHECK(cudaGetLastError());
+                CUDA_CHECK(cudaPeekAtLastError());
+            }
+
             integrateTime += GetTimer() - tempTime;
         }
         outGPU:
@@ -390,18 +428,44 @@ int main(const int argc, const char *argv[]) {
         printf("Average  GPU Throughput: %0.3f Billion Interactions / second\n\n\n",
             1e-9 * total_interactions / totalTimeGPU);
         // Copy back GPU data
-        cudaMemcpy(dataCPU_padded.x, dataGPU.x, total_bodies * sizeof(float),
-                    cudaMemcpyDeviceToHost);
-        cudaMemcpy(dataCPU_padded.y, dataGPU.y, total_bodies * sizeof(float),
-                    cudaMemcpyDeviceToHost);
-        cudaMemcpy(dataCPU_padded.z, dataGPU.z, total_bodies * sizeof(float),
-                    cudaMemcpyDeviceToHost);
-        cudaMemcpy(dataCPU_padded.vx, dataGPU.vx, total_bodies * sizeof(float),
-                    cudaMemcpyDeviceToHost);
-        cudaMemcpy(dataCPU_padded.vy, dataGPU.vy, total_bodies * sizeof(float),
-                    cudaMemcpyDeviceToHost);
-        cudaMemcpy(dataCPU_padded.vz, dataGPU.vz, total_bodies * sizeof(float),
-                    cudaMemcpyDeviceToHost);
+        int systems_per_dev = (num_systems + ndev - 1) / ndev; // ceil
+        for (int device = 0; device < ndev; device++) {
+            int sys_begin = device * systems_per_dev;
+            int sys_end   = sys_begin + systems_per_dev;
+            if (sys_end > num_systems) sys_end = num_systems;
+            if (sys_begin >= sys_end) continue;
+
+            int body_begin = sys_begin * bodies_per_system;
+            int body_count = (sys_end - sys_begin) * bodies_per_system;
+
+            CUDA_CHECK(cudaSetDevice(device));
+
+            CUDA_CHECK(cudaMemcpy(dataCPU_padded.x  + body_begin, dataGPU[device].x  + body_begin,
+                                body_count * sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(dataCPU_padded.y  + body_begin, dataGPU[device].y  + body_begin,
+                                body_count * sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(dataCPU_padded.z  + body_begin, dataGPU[device].z  + body_begin,
+                                body_count * sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(dataCPU_padded.vx + body_begin, dataGPU[device].vx + body_begin,
+                                body_count * sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(dataCPU_padded.vy + body_begin, dataGPU[device].vy + body_begin,
+                                body_count * sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(dataCPU_padded.vz + body_begin, dataGPU[device].vz + body_begin,
+                                body_count * sizeof(float), cudaMemcpyDeviceToHost));
+        }
+
+        // cudaMemcpy(dataCPU_padded.x, dataGPU.x, total_bodies * sizeof(float),
+        //             cudaMemcpyDeviceToHost);
+        // cudaMemcpy(dataCPU_padded.y, dataGPU.y, total_bodies * sizeof(float),
+        //             cudaMemcpyDeviceToHost);
+        // cudaMemcpy(dataCPU_padded.z, dataGPU.z, total_bodies * sizeof(float),
+        //             cudaMemcpyDeviceToHost);
+        // cudaMemcpy(dataCPU_padded.vx, dataGPU.vx, total_bodies * sizeof(float),
+        //             cudaMemcpyDeviceToHost);
+        // cudaMemcpy(dataCPU_padded.vy, dataGPU.vy, total_bodies * sizeof(float),
+        //             cudaMemcpyDeviceToHost);
+        // cudaMemcpy(dataCPU_padded.vz, dataGPU.vz, total_bodies * sizeof(float),
+        //             cudaMemcpyDeviceToHost);
         for(int i=0; i<total_bodies; i++){
             h_data[i].x = dataCPU_padded.x[i];
             h_data[i].y = dataCPU_padded.y[i];
@@ -413,7 +477,19 @@ int main(const int argc, const char *argv[]) {
         // CUDA_CHECK(cudaMemcpy(h_data, dataGPU, bytes,
         //             cudaMemcpyDeviceToHost));
         free(dataCPU);
-        cudaFree(&dataGPU);
+        for (int device = 0; device < ndev; device++) {
+        CUDA_CHECK(cudaSetDevice(device));
+        CUDA_CHECK(cudaFree(dataGPU[device].x));
+        CUDA_CHECK(cudaFree(dataGPU[device].y));
+        CUDA_CHECK(cudaFree(dataGPU[device].z));
+        CUDA_CHECK(cudaFree(dataGPU[device].vx));
+        CUDA_CHECK(cudaFree(dataGPU[device].vy));
+        CUDA_CHECK(cudaFree(dataGPU[device].vz));
+        CUDA_CHECK(cudaStreamDestroy(streams[device]));
+        }
+        free(dataGPU);
+        free(streams);
+
     }
     if(validate)
     // CPU computation for validation
