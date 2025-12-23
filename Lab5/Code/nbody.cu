@@ -47,13 +47,6 @@ typedef struct {
     float z[CUDA_BLOCK_SIZE];
 } Force;
 
-
-__inline__ __device__ float warpReduceSum(float v) {
-    for (int offset = 16; offset > 0; offset >>= 1)
-        v += __shfl_down_sync(0xffffffff, v, offset);
-    return v;
-}
-
 __global__ void bodyForceKernel_coarse(Body_SoA system, float dt, int n, int device) {
     // splits the tile since we have at most 1024 threads per block
     int sys = blockIdx.z + device * gridDim.z;
@@ -119,6 +112,7 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
     const float body_x = system.x[pointer_index + i];
     const float body_y = system.y[pointer_index + i];
     const float body_z = system.z[pointer_index + i];
+    __shared__ Force force_shared;
 
 
     // loop over 8 tiles
@@ -145,38 +139,23 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
         fz = fmaf(dz, invDist3, fz);
     }
 
-    // warp reduce within each warp
-    fx = warpReduceSum(fx);
-    fy = warpReduceSum(fy);
-    fz = warpReduceSum(fz);
-    __shared__ float warpFx[32];
-    __shared__ float warpFy[32];
-    __shared__ float warpFz[32];
-
-    int lane   = threadIdx.x & 31;
-    int warpId = threadIdx.x >> 5;
-
-    if (lane == 0) {
-        warpFx[warpId] = fx;
-        warpFy[warpId] = fy;
-        warpFz[warpId] = fz;
-    }
+    force_shared.x[inside_tile_idx] = fx;
+    force_shared.y[inside_tile_idx] = fy;
+    force_shared.z[inside_tile_idx] = fz;
     __syncthreads();
 
-    if (warpId == 0) {
-        float bx = (threadIdx.x < (blockDim.x + 31) / 32) ? warpFx[lane] : 0.0f;
-        float by = (threadIdx.x < (blockDim.x + 31) / 32) ? warpFy[lane] : 0.0f;
-        float bz = (threadIdx.x < (blockDim.x + 31) / 32) ? warpFz[lane] : 0.0f;
-
-        bx = warpReduceSum(bx);
-        by = warpReduceSum(by);
-        bz = warpReduceSum(bz);
-
-        if (lane == 0) {
-            system.vx[pointer_index + i] += dt * bx;
-            system.vy[pointer_index + i] += dt * by;
-            system.vz[pointer_index + i] += dt * bz;
+    for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
+        if (inside_tile_idx < s) {
+            force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
+            force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
+            force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
         }
+        __syncthreads(); 
+    }
+    if(inside_tile_idx == 0){
+        atomicAdd(&p[i].vx, dt * force_shared.x[0]);
+        atomicAdd(&p[i].vy, dt * force_shared.y[0]);
+        atomicAdd(&p[i].vz, dt * force_shared.z[0]);
     }
 }
 __global__ void integrateKernel_SoA_all(Body_SoA p, float dt, int n, int device) {

@@ -19,8 +19,6 @@ typedef struct {
 void bodyForce(Body * p, float dt, int n) {
     int i, j;
     float Fx, Fy, Fz, dx, dy, dz, distSqr, invDist, invDist3;
-    // printf("Computing bodyForce for %d bodies...\n", n);
-   #pragma omp parallel for private(i,j,Fx,Fy,Fz,dx,dy,dz,distSqr,invDist,invDist3)
     for (i = 0; i < n; i++) {
 	    Fx = 0.0f;
     	Fy = 0.0f;
@@ -43,15 +41,8 @@ void bodyForce(Body * p, float dt, int n) {
         p[i].vz += dt * Fz;
     }
 }
-
-/* Integrate positions.
-    - array of bodies
-    - time step
-    - number of bodies
-*/
 void integrate(Body * p, float dt, int n) {
     int i;
-   #pragma omp parallel for private(i)
     for (i = 0; i < n; i++) {
 	    p[i].x += p[i].vx * dt;
         p[i].y += p[i].vy * dt;
@@ -118,7 +109,6 @@ int main(const int argc, const char *argv[]) {
     /* Time-steps */
     for (iter = 1; iter <= nIters; iter++) {
 	    /* Galaxies */
-        // #pragma omp parallel for private(sys,system_ptr)
 	    for (sys = 0; sys < num_systems; sys++) {
 	        /* Calculate offset for the galaxy */
 	        system_ptr = &data[sys * bodies_per_system];
