@@ -153,9 +153,9 @@ __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
         __syncthreads(); 
     }
     if(inside_tile_idx == 0){
-        atomicAdd(&p[i].vx, dt * force_shared.x[0]);
-        atomicAdd(&p[i].vy, dt * force_shared.y[0]);
-        atomicAdd(&p[i].vz, dt * force_shared.z[0]);
+        atomicAdd(&system.vx[pointer_index + i], dt * force_shared.x[0]);
+        atomicAdd(&system.vy[pointer_index + i], dt * force_shared.y[0]);
+        atomicAdd(&system.vz[pointer_index + i], dt * force_shared.z[0]);
     }
 }
 __global__ void integrateKernel_SoA_all(Body_SoA p, float dt, int n, int device) {
