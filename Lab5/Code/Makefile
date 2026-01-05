@@ -26,6 +26,7 @@ GPU_TARGET   := nbody_gpu
 
 
 GALAXY_DATA_DIR   := ./galaxy_data.bin
+# GALAXY_DATA_DIR   := no
 
 ########################
 # Phony targets
@@ -72,13 +73,13 @@ build/gpu/%.o: %.cu | build/gpu
 # Run helpers
 ########################
 run_cpu: $(CPU_TARGET)
-	./$(CPU_TARGET) $(GALAXY_DATA_DIR)
+	./$(CPU_TARGET)
 
 run_gpu: $(GPU_TARGET)
-	./$(GPU_TARGET) $(GALAXY_DATA_DIR)
+	./$(GPU_TARGET)
 
 run_gpuV: $(GPU_TARGET) $(CPU_TARGET)
-	./$(GPU_TARGET) $(GALAXY_DATA_DIR) v
+	./$(GPU_TARGET) v
 
 ########################
 # Cleanup

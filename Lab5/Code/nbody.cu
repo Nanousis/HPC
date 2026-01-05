@@ -52,31 +52,46 @@ __global__ void bodyForceKernel_coarse(Body_SoA system, float dt, int n, int dev
     int sys = blockIdx.z + device * gridDim.z;
     int pointer_index= sys * n;
     int body_id = threadIdx.x + blockIdx.x * blockDim.x;
-    if (body_id >= n) return;
     float fx = 0.0f;
     float fy = 0.0f;
     float fz = 0.0f;
     float dx, dy, dz, distSqr, invDist, invDist3;  
+    
+    float body_handled_x=0.0f;
+    float body_handled_y=0.0f;
+    float body_handled_z=0.0f;
 
-    float body_handled_x = system.x[pointer_index + body_id];
-    float body_handled_y = system.y[pointer_index + body_id];
-    float body_handled_z = system.z[pointer_index + body_id];
-
+    if (body_id < n) {
+        body_handled_x = system.x[pointer_index + body_id];
+        body_handled_y = system.y[pointer_index + body_id];
+        body_handled_z = system.z[pointer_index + body_id];
+    }
     __shared__ float shared_body_x[CUDA_BLOCK_SIZE];
     __shared__ float shared_body_y[CUDA_BLOCK_SIZE];
     __shared__ float shared_body_z[CUDA_BLOCK_SIZE];
     #pragma unroll 4
-    for(int tile = 0; tile < (n + CUDA_BLOCK_SIZE - 1) / CUDA_BLOCK_SIZE; tile++){
-        int index = tile * CUDA_BLOCK_SIZE + threadIdx.x;
-
-        shared_body_x[threadIdx.x] = system.x[pointer_index + index];
-        shared_body_y[threadIdx.x] = system.y[pointer_index + index];
-        shared_body_z[threadIdx.x] = system.z[pointer_index + index];
+    for(int tile = 0; tile < (n + blockDim.x - 1) / blockDim.x; tile++){
+        int index = tile * blockDim.x + threadIdx.x;
+        if(index < n) {
+            shared_body_x[threadIdx.x] = system.x[pointer_index + index];
+            shared_body_y[threadIdx.x] = system.y[pointer_index + index];
+            shared_body_z[threadIdx.x] = system.z[pointer_index + index];
+        }
+        else
+        {
+            // printf("device %d, sys %d, pointer_index %d, body_id %d blockDim.x %d, tile %d, index %d out of bounds\n", device, sys, pointer_index, body_id, blockDim.x, tile, index);
+            shared_body_x[threadIdx.x] = 0.0f;
+            shared_body_y[threadIdx.x] = 0.0f;
+            shared_body_z[threadIdx.x] = 0.0f;
+        }
 
         __syncthreads();
         #pragma unroll 8
-        for(int j=0; j<CUDA_BLOCK_SIZE; j++){
-            if(tile * CUDA_BLOCK_SIZE + j >= n) break;
+        for(int j=0; j<blockDim.x; j++){
+            if(tile * blockDim.x + j >= n){
+                // printf("%d: Breaking at tile %d, j %d, index %d\n", body_id, tile, j, tile * blockDim.x + j);
+                break;
+            } 
             dx = shared_body_x[j] - body_handled_x;
             dy = shared_body_y[j] - body_handled_y;
             dz = shared_body_z[j] - body_handled_z;
@@ -89,75 +104,76 @@ __global__ void bodyForceKernel_coarse(Body_SoA system, float dt, int n, int dev
         }
         __syncthreads();
     }
-
-    system.vx[pointer_index + body_id] += dt * fx;
-    system.vy[pointer_index + body_id] += dt * fy;
-    system.vz[pointer_index + body_id] += dt * fz;
+    if(body_id < n){
+        system.vx[pointer_index + body_id] += dt * fx;
+        system.vy[pointer_index + body_id] += dt * fy;
+        system.vz[pointer_index + body_id] += dt * fz;
+    }
 }
 
 
-__global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
-    // splits the tile since we have at most 1024 threads per block
-    int sys = blockIdx.z + device * gridDim.z;
-    int pointer_index= sys * n;
-    int inside_tile_idx = threadIdx.x;
-    int i = blockIdx.x;
-    float fx = 0.0f;
-    float fy = 0.0f;
-    float fz = 0.0f;
-    int tiles = (n + blockDim.x - 1) / blockDim.x;
-    float dx, dy, dz, distSqr, invDist, invDist3;
+// __global__ void bodyForceKernel2(Body_SoA system, float dt, int n, int device) {
+//     // splits the tile since we have at most 1024 threads per block
+//     int sys = blockIdx.z + device * gridDim.z;
+//     int pointer_index= sys * n;
+//     int inside_tile_idx = threadIdx.x;
+//     int i = blockIdx.x;
+//     float fx = 0.0f;
+//     float fy = 0.0f;
+//     float fz = 0.0f;
+//     int tiles = (n + blockDim.x - 1) / blockDim.x;
+//     float dx, dy, dz, distSqr, invDist, invDist3;
     
 
-    const float body_x = system.x[pointer_index + i];
-    const float body_y = system.y[pointer_index + i];
-    const float body_z = system.z[pointer_index + i];
-    __shared__ Force force_shared;
+//     const float body_x = system.x[pointer_index + i];
+//     const float body_y = system.y[pointer_index + i];
+//     const float body_z = system.z[pointer_index + i];
+//     __shared__ Force force_shared;
 
 
-    // loop over 8 tiles
-    for(int tile = 0; tile < tiles; tile++){
-        // {
-        // int tile = blockIdx.y;
-        int j = inside_tile_idx + tile * blockDim.x;
-        dx = system.x[pointer_index + j] - body_x;
-        // dx = shPosX[j] - shPosX[i];
-        dy = system.y[pointer_index + j] - body_y;
-        // dy = shPosY[j] - shPosY[i];
-        dz = system.z[pointer_index + j] - body_z;
-        // this can be done with fused multiply add instructions
-        distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
-        // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
+//     // loop over 8 tiles
+//     for(int tile = 0; tile < tiles; tile++){
+//         // {
+//         // int tile = blockIdx.y;
+//         int j = inside_tile_idx + tile * blockDim.x;
+//         dx = system.x[pointer_index + j] - body_x;
+//         // dx = shPosX[j] - shPosX[i];
+//         dy = system.y[pointer_index + j] - body_y;
+//         // dy = shPosY[j] - shPosY[i];
+//         dz = system.z[pointer_index + j] - body_z;
+//         // this can be done with fused multiply add instructions
+//         distSqr = fmaf(dx, dx, fmaf(dy, dy, fmaf(dz, dz, SOFTENING)));
+//         // distSqr = dx * dx + dy * dy + dz * dz + SOFTENING;
         
-        // inverse srt goes brrrrrrrr here
-        invDist = rsqrtf(distSqr);
-        // invDist = 1.0f / sqrtf(distSqr);
+//         // inverse srt goes brrrrrrrr here
+//         invDist = rsqrtf(distSqr);
+//         // invDist = 1.0f / sqrtf(distSqr);
 
-        invDist3 = invDist * invDist * invDist;
-        fx = fmaf(dx, invDist3, fx);
-        fy = fmaf(dy, invDist3, fy);
-        fz = fmaf(dz, invDist3, fz);
-    }
+//         invDist3 = invDist * invDist * invDist;
+//         fx = fmaf(dx, invDist3, fx);
+//         fy = fmaf(dy, invDist3, fy);
+//         fz = fmaf(dz, invDist3, fz);
+//     }
 
-    force_shared.x[inside_tile_idx] = fx;
-    force_shared.y[inside_tile_idx] = fy;
-    force_shared.z[inside_tile_idx] = fz;
-    __syncthreads();
+//     force_shared.x[inside_tile_idx] = fx;
+//     force_shared.y[inside_tile_idx] = fy;
+//     force_shared.z[inside_tile_idx] = fz;
+//     __syncthreads();
 
-    for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
-        if (inside_tile_idx < s) {
-            force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
-            force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
-            force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
-        }
-        __syncthreads(); 
-    }
-    if(inside_tile_idx == 0){
-        atomicAdd(&system.vx[pointer_index + i], dt * force_shared.x[0]);
-        atomicAdd(&system.vy[pointer_index + i], dt * force_shared.y[0]);
-        atomicAdd(&system.vz[pointer_index + i], dt * force_shared.z[0]);
-    }
-}
+//     for (unsigned int s = CUDA_BLOCK_SIZE/2; s > 0; s >>= 1) {
+//         if (inside_tile_idx < s) {
+//             force_shared.x[inside_tile_idx] += force_shared.x[inside_tile_idx + s];
+//             force_shared.y[inside_tile_idx] += force_shared.y[inside_tile_idx + s];
+//             force_shared.z[inside_tile_idx] += force_shared.z[inside_tile_idx + s];
+//         }
+//         __syncthreads(); 
+//     }
+//     if(inside_tile_idx == 0){
+//         atomicAdd(&system.vx[pointer_index + i], dt * force_shared.x[0]);
+//         atomicAdd(&system.vy[pointer_index + i], dt * force_shared.y[0]);
+//         atomicAdd(&system.vz[pointer_index + i], dt * force_shared.z[0]);
+//     }
+// }
 __global__ void integrateKernel_SoA_all(Body_SoA p, float dt, int n, int device) {
     int sys = blockIdx.y + device * gridDim.y;
 
@@ -232,9 +248,9 @@ void integrate(Body * p, float dt, int n) {
 float calc_max_err(Body *a, Body *b, int n) {
     float err = 0.0f;
     for (int i = 0; i < n; i++) {
-        float err_x = fabsf(a[i].x - b[i].x);
-        float err_y = fabsf(a[i].y - b[i].y);
-        float err_z = fabsf(a[i].z - b[i].z);
+        float err_x = fabsf(a[i].vx - b[i].vx);
+        float err_y = fabsf(a[i].vy - b[i].vy);
+        float err_z = fabsf(a[i].vz - b[i].vz);
         if (err_x > err) err = err_x;
         if (err_y > err) err = err_y;
         if (err_z > err) err = err_z;
@@ -247,8 +263,8 @@ int main(const int argc, const char *argv[]) {
 
     int dev = 0;
     char validate = 0;
-    if (argc > 2) {
-        if (argv[2][0] == 'v' || argv[2][0] == 'V')
+    if (argc > 1) {
+        if (argv[1][0] == 'v' || argv[1][0] == 'V')
             validate = 1;
     }
 
@@ -364,9 +380,11 @@ int main(const int argc, const char *argv[]) {
         double  bodyforceTime = 0.0f;
         double integrateTime = 0.0f;
         // dim3 Block(bodies_per_system, 8,32);
-
-        dim3 Block(bodies_per_system/CUDA_BLOCK_SIZE,1,num_systems/ndev);
-        dim3 Block_Integrate(bodies_per_system/CUDA_BLOCK_SIZE,num_systems/ndev);
+        int grid_x = (bodies_per_system + CUDA_BLOCK_SIZE - 1) / CUDA_BLOCK_SIZE;
+        int grid_z = (num_systems + ndev - 1) / ndev;
+        printf("num of blocks %d, each does %d objects = %d,  systems: %d\n", grid_x, CUDA_BLOCK_SIZE, grid_x * CUDA_BLOCK_SIZE, grid_z);
+        dim3 Block(grid_x,1,grid_z);
+        dim3 Block_Integrate(grid_x,grid_z);
         
         cudaStream_t *streams = (cudaStream_t *) malloc(ndev * sizeof(cudaStream_t));
         for (int i = 0; i < ndev; i++) {
@@ -396,6 +414,7 @@ int main(const int argc, const char *argv[]) {
                 CUDA_CHECK(cudaPeekAtLastError());
             }
 
+            // goto outGPU;
             bodyforceTime += GetTimer() - tempTime;
             tempTime = GetTimer();
             for(int device=0; device<ndev; device++){
@@ -472,7 +491,7 @@ int main(const int argc, const char *argv[]) {
         }
         // CUDA_CHECK(cudaMemcpy(h_data, dataGPU, bytes,
         //             cudaMemcpyDeviceToHost));
-        free(dataCPU);
+        // free(dataCPU);
         for (int device = 0; device < ndev; device++) {
         CUDA_CHECK(cudaSetDevice(device));
         CUDA_CHECK(cudaFree(dataGPU[device].x));
@@ -492,8 +511,9 @@ int main(const int argc, const char *argv[]) {
     {
         total_bodies = num_systems * bodies_per_system;
         bytes = total_bodies * sizeof(Body);
-        dataCPU = (Body *) malloc(bytes);
+        // dataCPU = (Body *) malloc(bytes);
         FILE *correct_dump = fopen("correct_dump", "rb");
+        // if(1){
         if(!correct_dump){
              /* Attempt to load dataset */
             fp = fopen("galaxy_data.bin", "rb");
@@ -509,17 +529,17 @@ int main(const int argc, const char *argv[]) {
             /* Allocate memory for ALL systems */
 
     
-            /* Initialize dataCPU */
-            if (fp) {
-                fread(dataCPU, sizeof(Body), total_bodies, fp);
-                fclose(fp);
-            } else {
-            /* Random initialization if file missing */
-                buf = (float *) dataCPU;
-                for (int i = 0; i < 6 * total_bodies; i++) {
-                    buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
-                }
-            }
+            // /* Initialize dataCPU */
+            // if (fp) {
+            //     fread(dataCPU, sizeof(Body), total_bodies, fp);
+            //     fclose(fp);
+            // } else {
+            // /* Random initialization if file missing */
+            //     buf = (float *) dataCPU;
+            //     for (int i = 0; i < 6 * total_bodies; i++) {
+            //         buf[i] = 2.0f * (rand() / (float) RAND_MAX) - 1.0f;
+            //     }
+            // }
     
             printf("Running parallel CPU simulation for %d systems...\n",
                 num_systems);
@@ -541,6 +561,7 @@ int main(const int argc, const char *argv[]) {
                     // if(sys==0)
                     //     goto outCPU;
                 }
+                // goto outCPU;
             }
             outCPU:
             totalTimeCPU = GetTimer() / 1000.0;
@@ -576,8 +597,8 @@ int main(const int argc, const char *argv[]) {
         else{
             printf(RED "Final Error between CPU and GPU results: %f>%f\n" RESET "\n", err, ACCURACY);
         }
-        free(dataCPU);
     }
+    free(dataCPU);
     free(h_data);
 
     return 0;
