@@ -290,7 +290,7 @@ int main(const int argc, const char *argv[]) {
     Body_SoA dataCPU_padded;
     Body_SoA *dataGPU;
     float *buf;
-    double totalTimeGPU, totalTimeCPU, interactions_per_system, total_interactions;
+    double totalTimeGPU, totalTimeCPU, interactions_per_system, total_interactions, memory_copy_time, memory_allocation_time;
     {
         /* Attempt to load dataset */
         fp = fopen("galaxy_data.bin", "rb");
@@ -319,6 +319,7 @@ int main(const int argc, const char *argv[]) {
         dataCPU_padded.vx = (float *) malloc(total_bodies * sizeof(float));
         dataCPU_padded.vy = (float *) malloc(total_bodies * sizeof(float));
         dataCPU_padded.vz = (float *) malloc(total_bodies * sizeof(float));
+        memory_allocation_time = GetTimer();
         dataGPU = (Body_SoA *) malloc(sizeof(Body_SoA)*ndev);
 
         for(int device=0; device<ndev; device++){
@@ -331,7 +332,8 @@ int main(const int argc, const char *argv[]) {
             CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].vy, total_bodies * sizeof(float)));
             CUDA_CHECK(cudaMalloc((void **)&dataGPU[device].vz, total_bodies * sizeof(float)));
         }
-        
+        memory_allocation_time = GetTimer() - memory_allocation_time;
+        printf("Total memory allocation time on %d GPUs: %.3f seconds\n", ndev, memory_allocation_time / 1000.0);
 
         /* Initialize dataGPU */
         if (fp) {
@@ -353,6 +355,7 @@ int main(const int argc, const char *argv[]) {
             dataCPU_padded.vy[i] = dataCPU[i].vy;
             dataCPU_padded.vz[i] = dataCPU[i].vz;
         }
+        memory_copy_time = GetTimer();
         for(int device=0; device<ndev; device++){
             CUDA_CHECK(cudaSetDevice(device));
             cudaMemcpy(dataGPU[device].x, dataCPU_padded.x, total_bodies * sizeof(float),
@@ -368,7 +371,7 @@ int main(const int argc, const char *argv[]) {
             cudaMemcpy(dataGPU[device].vz, dataCPU_padded.vz, total_bodies * sizeof(float),
                         cudaMemcpyHostToDevice);
         }
-
+        memory_copy_time = GetTimer() - memory_copy_time;
         // CUDA_CHECK(cudaMemcpy(&dataGPU, &dataCPU_padded, bytes_padded,
         //             cudaMemcpyHostToDevice));
 
@@ -435,14 +438,8 @@ int main(const int argc, const char *argv[]) {
 
         totalTimeGPU = GetTimer() / 1000.0;
         /* Metrics calculation */
-        interactions_per_system = (double) bodies_per_system * bodies_per_system;
-        total_interactions = interactions_per_system * num_systems * nIters;
-        printf(BLUE"Body Force GPU Time: %.3f seconds\n" RESET, bodyforceTime/1000.0);
-        printf(BLUE"Integrate GPU Time: %.3f seconds\n" RESET, integrateTime/1000.0);
-        printf(CYAN"Total GPU Time: %.3f seconds\n" RESET, totalTimeGPU);
-        printf("Average  GPU Throughput: %0.3f Billion Interactions / second\n\n\n",
-            1e-9 * total_interactions / totalTimeGPU);
         // Copy back GPU data
+        tempTime = GetTimer();
         int systems_per_dev = (num_systems + ndev - 1) / ndev; // ceil
         for (int device = 0; device < ndev; device++) {
             int sys_begin = device * systems_per_dev;
@@ -468,7 +465,16 @@ int main(const int argc, const char *argv[]) {
             CUDA_CHECK(cudaMemcpy(dataCPU_padded.vz + body_begin, dataGPU[device].vz + body_begin,
                                 body_count * sizeof(float), cudaMemcpyDeviceToHost));
         }
-
+        memory_copy_time += GetTimer() - tempTime;
+        printf("Total memory copy time (including HtoD and DtoH): %.3f seconds\n", memory_copy_time / 1000.0);
+        totalTimeGPU += memory_copy_time / 1000.0;
+        interactions_per_system = (double) bodies_per_system * bodies_per_system;
+        total_interactions = interactions_per_system * num_systems * nIters;
+        printf(BLUE"Body Force GPU Time: %.3f seconds\n" RESET, bodyforceTime/1000.0);
+        printf(BLUE"Integrate GPU Time: %.3f seconds\n" RESET, integrateTime/1000.0);
+        printf(CYAN"Total GPU Time: %.3f seconds\n" RESET, totalTimeGPU);
+        printf("Average  GPU Throughput: %0.3f Billion Interactions / second\n\n\n",
+            1e-9 * total_interactions / totalTimeGPU);
         // cudaMemcpy(dataCPU_padded.x, dataGPU.x, total_bodies * sizeof(float),
         //             cudaMemcpyDeviceToHost);
         // cudaMemcpy(dataCPU_padded.y, dataGPU.y, total_bodies * sizeof(float),
